@@ -42,11 +42,11 @@
           <span id="healthDot" class="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse-subtle"></span>
           <span id="healthLabel" class="text-slate-300">Checking API...</span>
         </div>
-        <a href="/metrics" target="_blank" class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-400 hover:text-cyan-400 transition bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
+        <a id="metricsLink" href="/metrics" target="_blank" class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-400 hover:text-cyan-400 transition bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
           <i class="fa-solid fa-chart-line text-cyan-400"></i>
           <span>Metrics</span>
         </a>
-        <a href="/docs" target="_blank" class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-400 hover:text-indigo-400 transition bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
+        <a id="docsLink" href="/docs" target="_blank" class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-400 hover:text-indigo-400 transition bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
           <i class="fa-solid fa-book text-indigo-400"></i>
           <span>OpenAPI Docs</span>
         </a>
@@ -178,7 +178,18 @@
 
   <!-- Client Logic -->
   <script>
-    const API_BASE = window.location.port === "80" || window.location.port === "" ? "" : "http://localhost:8000";
+    // Smart API Base URL:
+    // When served directly as a local file or dev server (file:// or localhost:3000), connect to catalog-api on port 8000.
+    // When served in production behind Nginx/ALB on port 80, use relative paths.
+    let API_BASE = "http://localhost:8000";
+    if (window.location.protocol.startsWith("http") && (window.location.port === "80" || (window.location.port === "" && window.location.hostname !== "localhost"))) {
+      API_BASE = "";
+    }
+
+    // Set header links dynamically
+    document.getElementById("metricsLink").href = `${API_BASE || ""}/metrics`;
+    document.getElementById("docsLink").href = `${API_BASE || ""}/docs`;
+
     let trackedOrderIds = JSON.parse(localStorage.getItem("shoplite_orders") || "[]");
     let productsCache = [];
 
