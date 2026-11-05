@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShopLite — Cloud DevOps E-Commerce</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-subtle 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans antialiased">
+
+  <!-- Header -->
+  <header class="bg-slate-800/90 backdrop-blur-md border-b border-slate-700/80 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="bg-indigo-600 text-white p-2 rounded-xl shadow-lg shadow-indigo-600/30">
+          <i class="fa-solid fa-cart-shopping text-xl"></i>
+        </div>
+        <div>
+          <span class="text-xl font-black tracking-tight bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+            ShopLite
+          </span>
+          <span class="ml-2 text-xs font-mono bg-indigo-950 text-indigo-300 border border-indigo-700/50 px-2 py-0.5 rounded-full">
+            AWS EKS / GitOps
+          </span>
+        </div>
+      </div>
+
+      <!-- Live Telemetry Badges -->
+      <div class="flex items-center space-x-3">
+        <div id="apiHealthBadge" class="flex items-center space-x-2 bg-slate-900/80 border border-slate-700 px-3 py-1.5 rounded-lg text-xs font-mono">
+          <span id="healthDot" class="w-2.5 h-2.5 rounded-full bg-yellow-400 animate-pulse-subtle"></span>
+          <span id="healthLabel" class="text-slate-300">Checking API...</span>
+        </div>
+        <a href="/metrics" target="_blank" class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-400 hover:text-cyan-400 transition bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
+          <i class="fa-solid fa-chart-line text-cyan-400"></i>
+          <span>Metrics</span>
+        </a>
+        <a href="/docs" target="_blank" class="hidden sm:flex items-center space-x-1.5 text-xs text-slate-400 hover:text-indigo-400 transition bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
+          <i class="fa-solid fa-book text-indigo-400"></i>
+          <span>OpenAPI Docs</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-grow max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full space-y-8">
+
+    <!-- Notification Banner -->
+    <div id="alertBox" class="hidden rounded-xl p-4 text-sm font-medium transition"></div>
+
+    <!-- 2-Column Layout: Products Catalog & Quick Order -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      
+      <!-- Left Column: Products Grid (7 cols) -->
+      <section class="lg:col-span-7 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-xl font-bold text-white flex items-center space-x-2">
+            <i class="fa-solid fa-book-bookmark text-indigo-400"></i>
+            <span>DevOps Handbook Catalog (10 Items)</span>
+          </h2>
+          <button onclick="loadProducts()" class="text-xs text-slate-400 hover:text-white flex items-center space-x-1 bg-slate-800 px-2.5 py-1 rounded border border-slate-700">
+            <i class="fa-solid fa-rotate-right"></i>
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <div id="productsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="col-span-2 text-center py-10 text-slate-500">
+            <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i>
+            <p>Loading catalog from catalog-api...</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Place Order Form (5 cols) -->
+      <section class="lg:col-span-5 space-y-6">
+        <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl">
+          <h3 class="text-base font-bold text-white mb-4 flex items-center space-x-2">
+            <i class="fa-solid fa-cart-arrow-down text-emerald-400"></i>
+            <span>Place New Order</span>
+          </h3>
+          <form id="orderForm" onsubmit="handlePlaceOrder(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Select Product</label>
+              <select id="productSelect" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
+                <option value="">Loading catalog...</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Quantity</label>
+              <input type="number" id="orderQuantity" min="1" max="10" value="1" required
+                class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500">
+            </div>
+            <button type="submit" id="btnOrderSubmit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg text-sm transition shadow-lg shadow-indigo-600/30 flex items-center justify-center space-x-2">
+              <i class="fa-solid fa-paper-plane"></i>
+              <span>Dispatch Order (POST /orders)</span>
+            </button>
+          </form>
+          <p class="text-[11px] text-slate-400 mt-3 text-center">
+            Order will be stored in PostgreSQL as <span class="text-yellow-400 font-mono">PENDING</span> and pushed to Redis list <span class="text-cyan-400 font-mono">orders:pending</span>.
+          </p>
+        </div>
+
+        <!-- Architecture Quick Info -->
+        <div class="bg-slate-950/40 border border-slate-800 rounded-2xl p-5 space-y-2 text-xs text-slate-400">
+          <div class="font-bold text-slate-300 flex items-center space-x-2">
+            <i class="fa-solid fa-server text-cyan-400"></i>
+            <span>Decoupled Microservice Pipeline</span>
+          </div>
+          <p>
+            When an order is created, <strong>order-worker</strong> consumes it from Redis, simulates 1–2s processing, and updates the status to <strong class="text-emerald-400">COMPLETED</strong> in PostgreSQL.
+          </p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- Full-Width Live Orders Table -->
+    <section class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-6 shadow-xl space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+          <h2 class="text-lg font-bold text-white flex items-center space-x-2">
+            <i class="fa-solid fa-satellite-dish text-cyan-400 animate-pulse"></i>
+            <span>Live Order Status Tracking</span>
+          </h2>
+          <span class="text-xs text-slate-400 font-mono">(Polling every 2s)</span>
+        </div>
+        <button onclick="pollAllOrders()" class="text-xs text-slate-400 hover:text-cyan-400 flex items-center space-x-1">
+          <i class="fa-solid fa-arrows-rotate"></i>
+          <span>Sync Status</span>
+        </button>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+          <thead class="bg-slate-900/60 text-xs uppercase tracking-wider text-slate-400 border-b border-slate-700">
+            <tr>
+              <th class="py-3 px-4">Order ID</th>
+              <th class="py-3 px-4">Product ID</th>
+              <th class="py-3 px-4">Quantity</th>
+              <th class="py-3 px-4">Current Status</th>
+              <th class="py-3 px-4">Created Time</th>
+              <th class="py-3 px-4">Completed Time</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTableBody" class="divide-y divide-slate-700/50 font-mono text-xs">
+            <tr>
+              <td colspan="6" class="py-6 text-center text-slate-500 font-sans">
+                No active orders tracked in this browser session. Place an order above!
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-slate-950 border-t border-slate-800 py-6 text-center text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between space-y-2 sm:space-y-0">
+      <div>ShopLite Final Capstone Assessment &bull; Assessment Code: <code>DEVOPS-CAP-601</code></div>
+      <div>Python FastAPI &bull; PostgreSQL &bull; Redis Queue &bull; Nginx &bull; Prometheus</div>
+    </div>
+  </footer>
+
+  <!-- Client Logic -->
+  <script>
+    const API_BASE = window.location.port === "80" || window.location.port === "" ? "" : "http://localhost:8000";
+    let trackedOrderIds = JSON.parse(localStorage.getItem("shoplite_orders") || "[]");
+    let productsCache = [];
+
+    async function checkHealth() {
+      const dot = document.getElementById("healthDot");
+      const label = document.getElementById("healthLabel");
+      try {
+        const res = await fetch(`${API_BASE}/readyz`);
+        const data = await res.json();
+        if (data.status === "ready") {
+          dot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50";
+          label.textContent = "API, DB & Redis Ready";
+          label.className = "text-emerald-400";
+        } else {
+          dot.className = "w-2.5 h-2.5 rounded-full bg-yellow-400";
+          label.textContent = `Degraded (DB: ${data.database}, Queue: ${data.queue})`;
+          label.className = "text-yellow-400";
+        }
+      } catch (err) {
+        dot.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+        label.textContent = "API Offline";
+        label.className = "text-rose-400";
+      }
+    }
+
+    async function loadProducts() {
+      try {
+        const res = await fetch(`${API_BASE}/products`);
+        if (!res.ok) throw new Error("Failed to load catalog");
+        productsCache = await res.json();
+        renderProducts(productsCache);
+        populateSelect(productsCache);
+      } catch (e) {
+        document.getElementById("productsGrid").innerHTML = `
+          <div class="col-span-2 bg-rose-950/20 border border-rose-900 text-rose-300 p-4 rounded-xl text-center text-xs">
+            Could not retrieve products from ${API_BASE}/products. Verify catalog-api is running.
+          </div>`;
+      }
+    }
+
+    function renderProducts(products) {
+      const grid = document.getElementById("productsGrid");
+      if (!products.length) {
+        grid.innerHTML = `<div class="col-span-2 text-center text-slate-500 py-6">Catalog is empty.</div>`;
+        return;
+      }
+      grid.innerHTML = products.map(p => `
+        <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between hover:border-indigo-500/50 transition">
+          <div class="space-y-1">
+            <div class="flex items-start justify-between">
+              <span class="text-xs font-mono text-indigo-400 font-bold">#${p.id}</span>
+              <span class="text-emerald-400 font-bold text-sm">$${p.price.toFixed(2)}</span>
+            </div>
+            <h4 class="font-bold text-white text-sm leading-snug">${p.name}</h4>
+          </div>
+          <div class="mt-4 pt-3 border-t border-slate-700/40 flex items-center justify-between text-xs text-slate-400">
+            <span>Stock: <strong class="text-slate-200">${p.stock}</strong></span>
+            <button onclick="selectProduct(${p.id})" class="text-indigo-400 hover:text-indigo-300 font-medium flex items-center space-x-1">
+              <span>Order</span>
+              <i class="fa-solid fa-arrow-right text-[10px]"></i>
+            </button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function populateSelect(products) {
+      const select = document.getElementById("productSelect");
+      select.innerHTML = products.map(p => `
+        <option value="${p.id}">${p.name} ($${p.price.toFixed(2)})</option>
+      `).join("");
+    }
+
+    function selectProduct(id) {
+      document.getElementById("productSelect").value = id;
+      document.getElementById("orderQuantity").focus();
+    }
+
+    async function handlePlaceOrder(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btnOrderSubmit");
+      btn.disabled = true;
+      btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Submitting...</span>`;
+
+      const payload = {
+        product_id: parseInt(document.getElementById("productSelect").value),
+        quantity: parseInt(document.getElementById("orderQuantity").value)
+      };
+
+      try {
+        const res = await fetch(`${API_BASE}/orders`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || `HTTP Error ${res.status}`);
+        }
+
+        const data = await res.json();
+        // Track order ID locally
+        if (!trackedOrderIds.includes(data.order_id)) {
+          trackedOrderIds.unshift(data.order_id);
+          localStorage.setItem("shoplite_orders", JSON.stringify(trackedOrderIds.slice(0, 20)));
+        }
+        showAlert(`Order #${data.order_id} placed successfully! Enqueued to orders:pending.`, "success");
+        await pollAllOrders();
+      } catch (err) {
+        showAlert(`Order creation failed: ${err.message}`, "error");
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i class="fa-solid fa-paper-plane"></i> <span>Dispatch Order (POST /orders)</span>`;
+      }
+    }
+
+    async function pollAllOrders() {
+      if (!trackedOrderIds.length) return;
+      const tbody = document.getElementById("ordersTableBody");
+      
+      const orderPromises = trackedOrderIds.map(oid => 
+        fetch(`${API_BASE}/orders/${oid}`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      );
+
+      const orders = (await Promise.all(orderPromises)).filter(Boolean);
+      if (!orders.length) return;
+
+      tbody.innerHTML = orders.map(o => {
+        let badgeColor = "bg-yellow-900/50 text-yellow-300 border-yellow-700/60";
+        let icon = "fa-hourglass-start animate-spin";
+        if (o.status === "PROCESSING") {
+          badgeColor = "bg-blue-900/50 text-blue-300 border-blue-700/60";
+          icon = "fa-gear fa-spin";
+        } else if (o.status === "COMPLETED") {
+          badgeColor = "bg-emerald-900/50 text-emerald-300 border-emerald-700/60";
+          icon = "fa-check";
+        } else if (o.status === "FAILED") {
+          badgeColor = "bg-rose-900/50 text-rose-300 border-rose-700/60";
+          icon = "fa-xmark";
+        }
+
+        const createdTime = new Date(o.created_at).toLocaleTimeString();
+        const completedTime = o.completed_at ? new Date(o.completed_at).toLocaleTimeString() : "--";
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-3 px-4 font-bold text-indigo-400">#${o.id}</td>
+            <td class="py-3 px-4 text-slate-200">Prod #${o.product_id}</td>
+            <td class="py-3 px-4 text-slate-300">${o.quantity}</td>
+            <td class="py-3 px-4">
+              <span class="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${badgeColor}">
+                <i class="fa-solid ${icon} text-[10px]"></i>
+                <span>${o.status}</span>
+              </span>
+            </td>
+            <td class="py-3 px-4 text-slate-400">${createdTime}</td>
+            <td class="py-3 px-4 text-slate-400">${completedTime}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function showAlert(msg, type) {
+      const box = document.getElementById("alertBox");
+      box.className = type === "success" 
+        ? "rounded-xl p-4 text-sm font-medium bg-emerald-950/40 border border-emerald-800 text-emerald-300"
+        : "rounded-xl p-4 text-sm font-medium bg-rose-950/40 border border-rose-800 text-rose-300";
+      box.textContent = msg;
+      box.classList.remove("hidden");
+      setTimeout(() => box.classList.add("hidden"), 5000);
+    }
+
+    // Startup
+    checkHealth();
+    loadProducts();
+    pollAllOrders();
+
+    setInterval(checkHealth, 5000);
+    setInterval(pollAllOrders, 2000);
+  </script>
+</body>
+</html>
