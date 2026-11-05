@@ -1,6 +1,6 @@
 import json
 import logging
-import datetime
+from datetime import datetime, timezone
 import uuid
 from typing import Optional
 
@@ -16,7 +16,7 @@ class JSONLogFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         trace_id = getattr(record, "trace_id", None) or uuid.uuid4().hex
         log_obj = {
-            "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "service": self.service_name,
             "message": record.getMessage(),
@@ -36,3 +36,4 @@ def setup_logging(service_name: str = "catalog-api", log_level: str = "INFO") ->
     logger.addHandler(handler)
     logger.propagate = False
     return logger
+

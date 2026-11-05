@@ -53,3 +53,4 @@ def get_queue_depth() -> int:
         return redis_client.llen(settings.REDIS_QUEUE_NAME)
     except Exception:
         return 0
+

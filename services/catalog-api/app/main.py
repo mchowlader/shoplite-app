@@ -180,7 +180,7 @@ def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(
         product_id=order_in.product_id,
         quantity=order_in.quantity,
         status="PENDING",
-        created_at=datetime.datetime.utcnow()
+        created_at=datetime.datetime.now(datetime.timezone.utc)
     )
     db.add(new_order)
     db.commit()
@@ -196,7 +196,7 @@ def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(
         "product_id": new_order.product_id,
         "quantity": new_order.quantity,
         "trace_id": trace_id,
-        "enqueued_at": datetime.datetime.utcnow().isoformat()
+        "enqueued_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
     enqueue_order(payload)
 
@@ -215,3 +215,4 @@ def get_order_status(id: int, db: Session = Depends(get_db)):
             detail=f"Order #{id} not found."
         )
     return order
+

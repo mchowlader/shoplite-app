@@ -28,3 +28,4 @@ class Settings(BaseModel):
     CHAOS_ERROR_RATE: float = float(os.getenv("CHAOS_ERROR_RATE", "0.0"))
 
 settings = Settings()
+

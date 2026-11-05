@@ -62,3 +62,4 @@ All chaos flags are disabled by default and activated via environment variables:
 - `CHAOS_ERROR_RATE`: Returns HTTP 500 for the specified fraction of `POST /orders` requests.
 - `CHAOS_MEMORY_LEAK`: Causes `order-worker` to accumulate in-memory heap per order to simulate memory leaks.
 - `CHAOS_SLOW_DB`: Makes `order-worker` execute `pg_sleep(2)` before each database update.
+

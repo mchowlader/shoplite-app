@@ -25,3 +25,4 @@ class Order(Base):
     completed_at = Column(DateTime, nullable=True)
 
     product = relationship("Product", back_populates="orders")
+

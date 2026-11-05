@@ -40,7 +40,7 @@ memory_leak_reservoir = []
 # --- JSON Structured Logging (Section 1.4c) ---
 def log_json(level: str, message: str, trace_id: str = None):
     log_record = {
-        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
         "level": level,
         "service": SERVICE_NAME,
         "message": message,
@@ -180,3 +180,4 @@ def run_worker():
 
 if __name__ == "__main__":
     run_worker()
+

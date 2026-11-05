@@ -64,3 +64,4 @@ def init_db(max_retries: int = 5, retry_delay: int = 2) -> bool:
             else:
                 logger.error("Could not initialize PostgreSQL after maximum retries.")
                 return False
+
