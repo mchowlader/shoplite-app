@@ -1,0 +1,132 @@
+services:
+  # ----------------------------------------------------------------------------
+  # 1. PostgreSQL Relational Database (10 Products Auto-Seeded on Startup)
+  # ----------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: shoplite-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      POSTGRES_DB: shoplite_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - shoplite_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d shoplite_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 2. Redis Message & Task Queue (FIFO List: orders:pending)
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: shoplite-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - shoplite_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. ShopLite REST Engine (FastAPI Multi-Stage Alpine <65MB)
+  # ----------------------------------------------------------------------------
+  catalog-api:
+    build:
+      context: ./services/catalog-api
+      dockerfile: Dockerfile
+    container_name: shoplite-catalog-api
+    restart: unless-stopped
+    environment:
+      PORT: 8000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: shoplite_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE_NAME: orders:pending
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    networks:
+      - shoplite_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ----------------------------------------------------------------------------
+  # 4. Asynchronous Background Consumer (Multi-Stage Alpine <60MB)
+  # ----------------------------------------------------------------------------
+  order-worker:
+    build:
+      context: ./services/order-worker
+      dockerfile: Dockerfile
+    container_name: shoplite-order-worker
+    restart: unless-stopped
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres123
+      DB_NAME: shoplite_db
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_QUEUE_NAME: orders:pending
+      METRICS_PORT: 9101
+      LOG_LEVEL: INFO
+    ports:
+      - "9101:9101"
+    networks:
+      - shoplite_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      catalog-api:
+        condition: service_started
+
+  # ----------------------------------------------------------------------------
+  # 5. Frontend & Edge Reverse Proxy (Nginx Alpine <45MB)
+  # ----------------------------------------------------------------------------
+  web:
+    build:
+      context: ./services/web
+      dockerfile: Dockerfile
+    container_name: shoplite-web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "3000:80"
+    networks:
+      - shoplite_network
+    depends_on:
+      - catalog-api
+
+volumes:
+  postgres_data:
+    name: shoplite_postgres_data
+  redis_data:
+    name: shoplite_redis_data
+
+networks:
+  shoplite_network:
+    name: shoplite_network
+    driver: bridge

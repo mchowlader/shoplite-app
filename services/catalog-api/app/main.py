@@ -58,6 +58,22 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Root Index Endpoint
+@app.get("/", tags=["General"])
+def root():
+    return {
+        "service": "ShopLite Catalog API",
+        "version": "1.0.0",
+        "status": "healthy",
+        "endpoints": {
+            "docs": "/docs",
+            "products": "/products",
+            "healthz": "/healthz",
+            "readyz": "/readyz",
+            "metrics": "/metrics"
+        }
+    }
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
