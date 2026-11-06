@@ -18,7 +18,7 @@ try:
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 except Exception as e:
     logger.warning(f"Failed to bind PostgreSQL engine ({e}). Using SQLite fallback for tests.")
-    engine = create_engine("sqlite:///./shoplite_test.db", connect_args={"check_same_thread": False})
+    engine = create_engine("sqlite:////tmp/shoplite_test.db", connect_args={"check_same_thread": False})
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
