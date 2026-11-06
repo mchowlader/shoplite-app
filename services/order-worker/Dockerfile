@@ -43,6 +43,6 @@ EXPOSE 9101
 
 # Healthcheck testing worker metrics exporter endpoint
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:9101/metrics || exit 1
+  CMD curl -f http://127.0.0.1:9101/metrics || exit 1
 
 CMD ["python", "worker.py"]

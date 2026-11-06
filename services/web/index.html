@@ -342,8 +342,14 @@
           icon = "fa-xmark";
         }
 
-        const createdTime = new Date(o.created_at).toLocaleTimeString();
-        const completedTime = o.completed_at ? new Date(o.completed_at).toLocaleTimeString() : "--";
+        const formatTime = (ts) => {
+          if (!ts) return "--";
+          const iso = (typeof ts === "string" && !ts.endsWith("Z") && !ts.includes("+")) ? ts + "Z" : ts;
+          return new Date(iso).toLocaleTimeString();
+        };
+
+        const createdTime = formatTime(o.created_at);
+        const completedTime = formatTime(o.completed_at);
 
         return `
           <tr class="hover:bg-slate-800/40 transition">

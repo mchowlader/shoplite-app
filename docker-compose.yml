@@ -118,7 +118,7 @@ services:
     networks:
       - shoplite_network
     depends_on:
-      catalog-api
+      catalog-api:
         condition: service_healthy
 
 volumes:
