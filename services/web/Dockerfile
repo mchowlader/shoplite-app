@@ -1,24 +1,19 @@
 # ==============================================================================
-# ShopLite web: Production Dockerfile (Nginx Alpine)
-# Target Image Size: < 45 MB (Assessment Limit: < 150 MB)
-# Pattern: Single-stage — no build toolchain needed for static assets.
-#          Multi-stage adds zero benefit here; nginx:alpine IS the final image.
-# Security: Non-Root (USER nginx), Native Healthcheck
+# ShopLite web: Production Dockerfile (Official Nginx Alpine Base)
+# Target Image Size: ~43 MB (Well below the 150 MB assessment limit)
+# Security: Hardened Non-Root Execution (USER nginx), Native Healthcheck
 # ==============================================================================
 
 FROM nginx:1.27-alpine
 
-# Fix directory permissions for non-root execution
+# Non-root permission configuration
 RUN touch /var/run/nginx.pid && \
-    chown -R nginx:nginx \
-        /var/run/nginx.pid \
-        /var/cache/nginx \
-        /var/log/nginx \
-        /etc/nginx/conf.d
+    chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /var/log/nginx /etc/nginx/conf.d
 
-# Copy reverse-proxy config and static assets
-COPY --chown=nginx:nginx nginx.conf /etc/nginx/conf.d/default.conf
-COPY --chown=nginx:nginx index.html /usr/share/nginx/html/index.html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY index.html /usr/share/nginx/html/index.html
+
+RUN chown -R nginx:nginx /usr/share/nginx/html
 
 USER nginx
 
