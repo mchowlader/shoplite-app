@@ -7,19 +7,17 @@ from .models import Base, Product
 
 logger = logging.getLogger("catalog-api")
 
-try:
-    engine = create_engine(
-        settings.DATABASE_URL,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True,
-        connect_args={"connect_timeout": 5}
-    )
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-except Exception as e:
-    logger.warning(f"Failed to bind PostgreSQL engine ({e}). Using SQLite fallback for tests.")
-    engine = create_engine("sqlite:////tmp/shoplite_test.db", connect_args={"check_same_thread": False})
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Connect to PostgreSQL using standard SQLAlchemy 2.0 engine
+engine_args = {
+    "pool_size": 10,
+    "max_overflow": 20,
+    "pool_pre_ping": True,
+}
+if "postgresql" in settings.DATABASE_URL:
+    engine_args["connect_args"] = {"connect_timeout": 5}
+
+engine = create_engine(settings.DATABASE_URL, **engine_args)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db():
     db = SessionLocal()

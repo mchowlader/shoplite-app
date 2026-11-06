@@ -1,5 +1,9 @@
 import os
 import sys
+
+# Ensure tests use an isolated SQLite database when running outside Docker
+os.environ.setdefault("DATABASE_URL", "sqlite:///./shoplite_test.db")
+
 import pytest
 from fastapi.testclient import TestClient
 

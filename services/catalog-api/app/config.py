@@ -15,6 +15,9 @@ class Settings(BaseModel):
 
     @property
     def DATABASE_URL(self) -> str:
+        env_url = os.getenv("DATABASE_URL")
+        if env_url:
+            return env_url
         return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
 
     # Redis Queue Configuration (Section 1.1 specifies Redis list 'orders:pending')
