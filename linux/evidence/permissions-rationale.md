@@ -6,7 +6,37 @@
 
 ---
 
-## 2. Evidence Verification Commands
+## 2. Live Terminal Evidence Screenshot
+
+![Question 3 Verification Evidence](./q3-verification-evidence.png)
+
+### Verified Outputs:
+1. **User `deploy` & Group `ops` (Q3.1):**
+   ```text
+   uid=1002(deploy) gid=1002(ops) groups=1002(ops)
+   ```
+2. **ACL & Permissions on `/var/log/shoplite/` (Q3.2):**
+   ```text
+   # file: var/log/shoplite
+   # owner: root
+   # group: ops
+   user::rwx
+   group::r-x
+   other::---
+   default:user::rwx
+   default:group::r-x
+   default:group:ops:r-x
+   default:mask::r-x
+   default:other::---
+   ```
+3. **systemd Backup Timer (Q3.3):**
+   ```text
+   Sun 2026-11-08 02:00:00 UTC    21h -  - shoplite-backup.timer  shoplite-backup.service
+   ```
+
+---
+
+## 3. Evidence Verification Commands Reference
 
 ### 2.1 Users & SSH (Question 3.1)
 ```bash
@@ -59,3 +89,4 @@ curl -I http://localhost:80
 nc -zv -w 3 <SERVER_PUBLIC_IP> 5432
 # Expected: Connection timed out or connection refused.
 ```
+
