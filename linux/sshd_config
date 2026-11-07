@@ -1,0 +1,24 @@
+# ==============================================================================
+# ShopLite: OpenSSH Hardening Configuration
+# Requirement 3.1: Key-based login only, root login disabled
+# File Location: /etc/ssh/sshd_config.d/99-shoplite.conf
+# ==============================================================================
+
+# Authentication & Keys
+PubkeyAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+AuthenticationMethods publickey
+
+# Root Restrictions (Question 3.1)
+PermitRootLogin no
+
+# Session limits & Timeouts
+MaxAuthTries 3
+ClientAliveInterval 300
+ClientAliveCountMax 2
+
+# Disable insecure protocols
+X11Forwarding no
+AllowTcpForwarding yes
+PermitUserEnvironment no
