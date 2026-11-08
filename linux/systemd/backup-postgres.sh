@@ -57,3 +57,4 @@ echo "[SUCCESS] Backup created successfully: ${TARGET} (${BACKUP_SIZE})"
 echo "[INFO] Cleaned up ${DELETED_COUNT} file(s) older than ${RETENTION_DAYS} days."
 
 notify_discord "SUCCESS" "Backup created: \`${FILENAME}\` (${BACKUP_SIZE}). Rotated ${DELETED_COUNT} old files."
+

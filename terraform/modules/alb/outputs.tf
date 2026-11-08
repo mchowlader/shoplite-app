@@ -12,3 +12,4 @@ output "target_group_arn" {
   description = "ARN of the Ingress Target Group"
   value       = aws_lb_target_group.k8s_ingress.arn
 }
+

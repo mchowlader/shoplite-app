@@ -26,3 +26,4 @@ ufw --force enable
 
 echo "[SUCCESS] UFW Firewall active. Current status:"
 ufw status verbose
+

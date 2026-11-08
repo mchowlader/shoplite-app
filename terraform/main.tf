@@ -73,3 +73,4 @@ resource "aws_budgets_budget" "cost_guard" {
     subscriber_email_addresses = [var.alert_email]
   }
 }
+

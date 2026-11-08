@@ -12,3 +12,4 @@ variable "repository_names" {
     "shoplite/order-worker"
   ]
 }
+

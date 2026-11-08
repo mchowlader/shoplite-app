@@ -32,3 +32,4 @@ output "ecr_repository_urls" {
   description = "ECR Repository URLs for docker push"
   value       = module.ecr.repository_urls
 }
+

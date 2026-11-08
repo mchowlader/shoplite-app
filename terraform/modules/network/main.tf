@@ -201,3 +201,4 @@ resource "aws_security_group" "nodes" {
     Name = "shoplite-nodes-sg-${var.environment}"
   }
 }
+

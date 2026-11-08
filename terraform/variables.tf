@@ -63,3 +63,4 @@ variable "alert_email" {
   type        = string
   default     = "admin@example.com"
 }
+

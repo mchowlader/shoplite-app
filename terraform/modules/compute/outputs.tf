@@ -17,3 +17,4 @@ output "worker_private_ips" {
   description = "List of private IP addresses of the worker nodes"
   value       = aws_instance.workers[*].private_ip
 }
+

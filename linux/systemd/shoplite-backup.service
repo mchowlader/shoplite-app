@@ -12,3 +12,4 @@ EnvironmentFile=-/etc/default/shoplite-backup
 ExecStart=/opt/shoplite/scripts/backup-postgres.sh
 StandardOutput=journal
 StandardError=journal
+

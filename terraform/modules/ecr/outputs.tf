@@ -10,3 +10,4 @@ output "repository_arns" {
   description = "List of ARNs of the created ECR repositories"
   value       = aws_ecr_repository.repos[*].arn
 }
+
