@@ -137,7 +137,6 @@ def process_order(session, order_data: dict):
         ORDERS_PROCESSED_TOTAL.labels(result="failed").inc()
 
 def run_worker():
-    global running
     log_json("INFO", f"Starting ShopLite order-worker on queue '{REDIS_QUEUE_NAME}'")
 
     # Start Prometheus Exporter on port 9101
