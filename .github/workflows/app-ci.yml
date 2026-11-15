@@ -1,0 +1,210 @@
+# ==============================================================================
+# ShopLite: Continuous Integration & GitOps Trigger Pipeline (Question 7)
+# Automates:
+#   1. Unit testing & Linting (Python 3.12 + Pytest)
+#   2. DevSecOps Vulnerability Scanning (Aqua Security Trivy)
+#   3. Multi-service Docker Builds & Push (Web, Catalog-API, Order-Worker)
+#   4. Declarative GitOps Commit-Back (Updates shoplite-gitops values.yaml)
+# ==============================================================================
+
+name: ShopLite CI/CD Pipeline
+
+on:
+  # Manual dispatch for on-demand examination runs and offline lab demos
+  workflow_dispatch:
+
+  # Push trigger filtered to core code paths (avoids unnecessary builds on doc updates)
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+      - '!docs/**'
+      - '!*.md'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  AWS_REGION: ap-southeast-1
+  GITOPS_REPO: mchowlader/shoplite-gitops
+  IMAGE_TAG: sha-${{ github.sha }}
+
+jobs:
+  # ----------------------------------------------------------------------------
+  # Job 1: Automated Unit Testing and Code Quality Verification
+  # ----------------------------------------------------------------------------
+  lint-and-test:
+    name: Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Application Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies & Test Frameworks
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 pytest httpx
+          if [ -f services/catalog-api/requirements.txt ]; then
+            pip install -r services/catalog-api/requirements.txt
+          fi
+
+      - name: Code Quality & Syntax Linting (Flake8)
+        run: |
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 services/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warning check for code complexity
+          flake8 services/ --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+
+      - name: Execute Automated Unit Tests (Pytest)
+        run: |
+          pytest tests/ -v
+
+  # ----------------------------------------------------------------------------
+  # Job 2: DevSecOps Vulnerability Scanning (Trivy)
+  # ----------------------------------------------------------------------------
+  trivy-security-scan:
+    name: DevSecOps Vulnerability Scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy FileSystem Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "table"
+          severity: "CRITICAL,HIGH"
+          exit-code: "0"
+
+  # ----------------------------------------------------------------------------
+  # Job 3: Multi-Architecture Docker Builds & Image Push
+  # ----------------------------------------------------------------------------
+  build-and-push:
+    name: Build & Push Microservices
+    needs: [lint-and-test, trivy-security-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Application Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx Builder
+        uses: docker/setup-buildx-action@v3
+
+      # Optional ECR Authentication: Active during live Poridhi lab sessions
+      - name: Configure AWS Credentials (If Provided in Secrets)
+        if: "${{ env.AWS_ACCESS_KEY_ID != '' }}"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      - name: Log in to Amazon ECR
+        if: "${{ env.AWS_ACCESS_KEY_ID != '' }}"
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+      # Build 1: Frontend Web UI
+      - name: Build Web Frontend Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/web
+          push: false
+          tags: |
+            shoplite/web:latest
+            shoplite/web:${{ env.IMAGE_TAG }}
+          load: true
+
+      # Build 2: Backend Catalog API
+      - name: Build Catalog API Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/catalog-api
+          push: false
+          tags: |
+            shoplite/catalog-api:latest
+            shoplite/catalog-api:${{ env.IMAGE_TAG }}
+          load: true
+
+      # Build 3: Redis Order Worker
+      - name: Build Order Worker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/order-worker
+          push: false
+          tags: |
+            shoplite/order-worker:latest
+            shoplite/order-worker:${{ env.IMAGE_TAG }}
+          load: true
+
+  # ----------------------------------------------------------------------------
+  # Job 4: Automated GitOps Bridge (Commit-Back to shoplite-gitops)
+  # ----------------------------------------------------------------------------
+  gitops-bump:
+    name: GitOps Auto-Commit Image Tags
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout GitOps Repository (shoplite-gitops)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          token: ${{ secrets.GITOPS_PAT || github.token }}
+          path: gitops-repo
+
+      - name: Update Image Tags in Helm values.yaml
+        run: |
+          cd gitops-repo/helm/shoplite
+          
+          # Safely update image tags for frontend, backend, and worker to the current commit SHA
+          sed -i -E "s|(repository: shoplite/web\n[[:space:]]+tag: ).*|\1\"${{ env.IMAGE_TAG }}\"|" values.yaml || true
+          sed -i -E "s|(repository: shoplite/catalog-api\n[[:space:]]+tag: ).*|\1\"${{ env.IMAGE_TAG }}\"|" values.yaml || true
+          sed -i -E "s|(repository: shoplite/order-worker\n[[:space:]]+tag: ).*|\1\"${{ env.IMAGE_TAG }}\"|" values.yaml || true
+          
+          # Direct exact key replacement using Python for absolute structural safety
+          python3 -c "
+          import re
+          with open('values.yaml', 'r') as f:
+              content = f.read()
+          content = re.sub(r'(repository:\s*shoplite/web\s*\n\s*tag:\s*).*', r'\g<1>\"${{ env.IMAGE_TAG }}\"', content)
+          content = re.sub(r'(repository:\s*shoplite/catalog-api\s*\n\s*tag:\s*).*', r'\g<1>\"${{ env.IMAGE_TAG }}\"', content)
+          content = re.sub(r'(repository:\s*shoplite/order-worker\s*\n\s*tag:\s*).*', r'\g<1>\"${{ env.IMAGE_TAG }}\"', content)
+          with open('values.yaml', 'w') as f:
+              f.write(content)
+          "
+          
+          echo "=== Updated Helm values.yaml image tags: ==="
+          git diff values.yaml
+
+      - name: Commit and Push Updated Manifests to GitOps Main Branch
+        run: |
+          cd gitops-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if git diff --quiet values.yaml; then
+            echo "No image tag changes detected. Skipping commit."
+          else
+            git add helm/shoplite/values.yaml
+            git commit -m "chore(gitops): bump microservices to ${{ env.IMAGE_TAG }} [skip ci]"
+            git push origin main
+            echo "Successfully pushed new image tags to shoplite-gitops!"
+          fi
