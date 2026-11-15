@@ -163,14 +163,24 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
+      - name: Verify GitOps Access Token
+        run: |
+          if [ -z "${{ secrets.GITOPS_PAT }}" ]; then
+            echo "::notice title=GITOPS_PAT Required for Cross-Repo Commit::Add GITOPS_PAT to repository secrets to enable automatic commit-back to shoplite-gitops."
+          else
+            echo "GITOPS_PAT detected. Proceeding with GitOps auto-bump."
+          fi
+
       - name: Checkout GitOps Repository (shoplite-gitops)
+        if: "${{ secrets.GITOPS_PAT != '' }}"
         uses: actions/checkout@v4
         with:
           repository: ${{ env.GITOPS_REPO }}
-          token: ${{ secrets.GITOPS_PAT || github.token }}
+          token: ${{ secrets.GITOPS_PAT }}
           path: gitops-repo
 
       - name: Update Image Tags in Helm values.yaml
+        if: "${{ secrets.GITOPS_PAT != '' }}"
         run: |
           cd gitops-repo/helm/shoplite
           
@@ -195,6 +205,7 @@ jobs:
           git diff values.yaml
 
       - name: Commit and Push Updated Manifests to GitOps Main Branch
+        if: "${{ secrets.GITOPS_PAT != '' }}"
         run: |
           cd gitops-repo
           git config user.name "github-actions[bot]"
