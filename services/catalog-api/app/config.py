@@ -30,5 +30,9 @@ class Settings(BaseModel):
     CHAOS_LATENCY_MS: int = int(os.getenv("CHAOS_LATENCY_MS", "0"))
     CHAOS_ERROR_RATE: float = float(os.getenv("CHAOS_ERROR_RATE", "0.0"))
 
+    # OpenTelemetry Distributed Tracing (Section 6.4 - Grafana Tempo)
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    ENVIRONMENT: str = os.getenv("APP_ENV", "production")
+
 settings = Settings()
 

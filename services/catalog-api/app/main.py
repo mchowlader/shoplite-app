@@ -23,6 +23,36 @@ from .queue import enqueue_order, check_redis, get_queue_depth
 
 logger = setup_logging(service_name=settings.SERVICE_NAME, log_level=settings.LOG_LEVEL)
 
+# --- OpenTelemetry Distributed Tracing Setup (Section 6.4 - Grafana Tempo) ---
+tracer = None
+trace_module = None
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    trace_module = trace
+    resource = Resource.create({
+        "service.name": settings.SERVICE_NAME,
+        "deployment.environment": settings.ENVIRONMENT
+    })
+    provider = TracerProvider(resource=resource)
+
+    if settings.OTEL_EXPORTER_OTLP_ENDPOINT:
+        otlp_exporter = OTLPSpanExporter(endpoint=settings.OTEL_EXPORTER_OTLP_ENDPOINT)
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        logger.info(f"OpenTelemetry OTLP Exporter registered for {settings.OTEL_EXPORTER_OTLP_ENDPOINT}")
+    else:
+        logger.info("OpenTelemetry running in local mode (OTEL_EXPORTER_OTLP_ENDPOINT not set)")
+
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer(settings.SERVICE_NAME)
+except Exception as exc:
+    logger.warning(f"OpenTelemetry initialization skipped: {exc}")
+
 # --- Required Prometheus Metrics (Section 6.2) ---
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total",
@@ -58,6 +88,13 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Instrument FastAPI with OpenTelemetry if available
+try:
+    if "FastAPIInstrumentor" in locals() and FastAPIInstrumentor:
+        FastAPIInstrumentor.instrument_app(app)
+except Exception as exc:
+    logger.warning(f"FastAPIInstrumentor registration skipped: {exc}")
+
 # Root Index Endpoint
 @app.get("/", tags=["General"])
 def root():
@@ -87,7 +124,21 @@ app.add_middleware(
 @app.middleware("http")
 async def telemetry_middleware(request: Request, call_next):
     start_time = time.time()
-    trace_id = request.headers.get("X-Trace-Id", uuid.uuid4().hex)
+
+    # Extract trace_id from active OpenTelemetry span context if available,
+    # ensuring exact correlation between Grafana Tempo traces and Loki logs!
+    trace_id = None
+    try:
+        if trace_module:
+            current_span = trace_module.get_current_span()
+            if current_span and current_span.get_span_context().is_valid:
+                trace_id = format(current_span.get_span_context().trace_id, "032x")
+    except Exception:
+        pass
+
+    if not trace_id:
+        trace_id = request.headers.get("X-Trace-Id", uuid.uuid4().hex)
+
     request.state.trace_id = trace_id
 
     route_path = request.url.path
