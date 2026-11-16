@@ -50,14 +50,15 @@ resource "aws_iam_instance_profile" "ssm_profile" {
   role = aws_iam_role.ssm_role.name
 }
 
-# 3. Control-Plane Node (Private Subnet 1)
+# 3. Control-Plane Node (Public Subnet / Bastion for direct SSH access, Workers remain 100% private)
 resource "aws_instance" "control_plane" {
-  ami                  = data.aws_ami.ubuntu.id
-  instance_type        = var.control_plane_instance_type
-  subnet_id            = var.private_subnet_ids[0]
-  vpc_security_group_ids = [var.nodes_security_group_id]
-  iam_instance_profile = aws_iam_instance_profile.ssm_profile.name
-  key_name             = var.key_name != "" ? var.key_name : null
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.control_plane_instance_type
+  subnet_id                   = length(var.public_subnet_ids) > 0 ? var.public_subnet_ids[0] : var.private_subnet_ids[0]
+  associate_public_ip_address = length(var.public_subnet_ids) > 0 ? true : false
+  vpc_security_group_ids      = [var.nodes_security_group_id]
+  iam_instance_profile        = aws_iam_instance_profile.ssm_profile.name
+  key_name                    = var.key_name != "" ? var.key_name : null
 
   root_block_device {
     volume_size           = 30

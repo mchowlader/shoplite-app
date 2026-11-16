@@ -23,6 +23,11 @@ output "control_plane_private_ip" {
   value       = module.compute.control_plane_private_ip
 }
 
+output "control_plane_public_ip" {
+  description = "Public IP of K8s Control Plane instance (Bastion SSH Access)"
+  value       = module.compute.control_plane_public_ip
+}
+
 output "worker_private_ips" {
   description = "Private IPs of K8s Worker nodes"
   value       = module.compute.worker_private_ips
