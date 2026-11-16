@@ -114,7 +114,6 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "3000:80"
     networks:
       - shoplite_network
     depends_on:
