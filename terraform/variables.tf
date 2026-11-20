@@ -47,9 +47,9 @@ variable "worker_node_count" {
 }
 
 variable "key_name" {
-  description = "EC2 Key Pair name for SSH administration access"
+  description = "Optional EC2 Key Pair name for SSH access"
   type        = string
-  default     = "shoplite-key"
+  default     = ""
 }
 
 variable "budget_limit_usd" {

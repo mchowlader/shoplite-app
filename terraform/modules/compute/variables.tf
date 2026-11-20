@@ -8,12 +8,6 @@ variable "private_subnet_ids" {
   type        = list(string)
 }
 
-variable "public_subnet_ids" {
-  description = "Optional list of public subnet IDs (used to give control plane public IP as bastion)"
-  type        = list(string)
-  default     = []
-}
-
 variable "nodes_security_group_id" {
   description = "Security Group ID for K8s nodes"
   type        = string

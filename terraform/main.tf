@@ -21,7 +21,6 @@ module "compute" {
 
   environment                 = var.environment
   private_subnet_ids          = module.network.private_subnet_ids
-  public_subnet_ids           = module.network.public_subnet_ids
   nodes_security_group_id     = module.network.nodes_security_group_id
   control_plane_instance_type = var.control_plane_instance_type
   worker_instance_type        = var.worker_instance_type
