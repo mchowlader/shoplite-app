@@ -103,57 +103,55 @@ jobs:
       - name: Set up Docker Buildx Builder
         uses: docker/setup-buildx-action@v3
 
-      # Optional ECR Authentication: Active during live Poridhi lab sessions
-      - name: Configure AWS Credentials (If Provided in Secrets)
-        if: env.AWS_ACCESS_KEY_ID != ''
+      # ECR Authentication: Active when AWS secrets are provided
+      - name: Configure AWS Credentials
+        if: secrets.AWS_ACCESS_KEY_ID != ''
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ env.AWS_REGION }}
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
 
       - name: Log in to Amazon ECR
-        if: env.AWS_ACCESS_KEY_ID != ''
+        if: secrets.AWS_ACCESS_KEY_ID != ''
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
 
       # Build 1: Frontend Web UI
       - name: Build Web Frontend Image
         uses: docker/build-push-action@v6
         with:
           context: ./services/web
-          push: false
+          push: ${{ steps.login-ecr.outputs.registry != '' }}
           tags: |
-            shoplite/web:latest
-            shoplite/web:${{ env.IMAGE_TAG }}
-          load: true
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/web:latest
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/web:v1.0.0
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/web:${{ env.IMAGE_TAG }}
+          load: ${{ steps.login-ecr.outputs.registry == '' }}
 
       # Build 2: Backend Catalog API
       - name: Build Catalog API Image
         uses: docker/build-push-action@v6
         with:
           context: ./services/catalog-api
-          push: false
+          push: ${{ steps.login-ecr.outputs.registry != '' }}
           tags: |
-            shoplite/catalog-api:latest
-            shoplite/catalog-api:${{ env.IMAGE_TAG }}
-          load: true
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/catalog-api:latest
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/catalog-api:v1.0.0
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/catalog-api:${{ env.IMAGE_TAG }}
+          load: ${{ steps.login-ecr.outputs.registry == '' }}
 
       # Build 3: Redis Order Worker
       - name: Build Order Worker Image
         uses: docker/build-push-action@v6
         with:
           context: ./services/order-worker
-          push: false
+          push: ${{ steps.login-ecr.outputs.registry != '' }}
           tags: |
-            shoplite/order-worker:latest
-            shoplite/order-worker:${{ env.IMAGE_TAG }}
-          load: true
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/order-worker:latest
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/order-worker:v1.0.0
+            ${{ steps.login-ecr.outputs.registry || 'shoplite' }}/order-worker:${{ env.IMAGE_TAG }}
+          load: ${{ steps.login-ecr.outputs.registry == '' }}
 
   # ----------------------------------------------------------------------------
   # Job 4: Automated GitOps Bridge (Commit-Back to shoplite-gitops)
