@@ -163,6 +163,15 @@ resource "aws_security_group" "nodes" {
   description = "Security Group for Kubernetes control-plane and worker nodes"
   vpc_id      = aws_vpc.main.id
 
+  # Ingress for SSH Administration / Bastion
+  ingress {
+    description = "Allow inbound SSH for cluster administration / bastion"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   # Ingress strictly from ALB to NodePort / Ingress controller port (e.g. 80, 443, 30000-32767)
   ingress {
     description     = "Allow traffic from ALB into Kubernetes Ingress"
