@@ -145,17 +145,32 @@ async def telemetry_middleware(request: Request, call_next):
     response = await call_next(request)
     duration = time.time() - start_time
 
-    # Update Prometheus metrics (excluding /metrics, /healthz, /readyz to keep clean metrics)
+    # Update Prometheus metrics with Exemplar support (excluding /metrics, /healthz, /readyz)
     if route_path not in ["/metrics", "/healthz", "/readyz"]:
         HTTP_REQUESTS_TOTAL.labels(
             method=request.method,
             route=route_path,
             status=str(response.status_code)
         ).inc()
-        HTTP_REQUEST_DURATION_SECONDS.labels(
-            method=request.method,
-            route=route_path
-        ).observe(duration)
+        
+        # Attach Exemplar for Grafana Tempo distributed trace correlation
+        exemplar = {"TraceID": trace_id} if trace_id else None
+        try:
+            if exemplar:
+                HTTP_REQUEST_DURATION_SECONDS.labels(
+                    method=request.method,
+                    route=route_path
+                ).observe(duration, exemplar=exemplar)
+            else:
+                HTTP_REQUEST_DURATION_SECONDS.labels(
+                    method=request.method,
+                    route=route_path
+                ).observe(duration)
+        except TypeError:
+            HTTP_REQUEST_DURATION_SECONDS.labels(
+                method=request.method,
+                route=route_path
+            ).observe(duration)
 
     response.headers["X-Trace-Id"] = trace_id
     return response
@@ -190,9 +205,13 @@ def readiness(response: Response, db: Session = Depends(get_db)):
 
 @app.get("/metrics", tags=["Observability"])
 def metrics():
-    """Exposes Prometheus metrics required in Question 6."""
+    """Exposes Prometheus metrics with OpenMetrics Exemplar support."""
     ORDER_QUEUE_DEPTH.set(get_queue_depth())
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    try:
+        from prometheus_client import openmetrics
+        return Response(content=openmetrics.generate_latest(), media_type=openmetrics.CONTENT_TYPE_LATEST)
+    except Exception:
+        return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # --- Product Catalog Endpoints ---
 @app.get("/products", response_model=List[ProductResponse], tags=["Products"])
@@ -256,13 +275,27 @@ def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(
     # Track Prometheus metric
     ORDERS_CREATED_TOTAL.inc()
 
-    # Enqueue to Redis list 'orders:pending'
+    # Enqueue to Redis list 'orders:pending' with W3C traceparent context propagation
     trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
+    traceparent = None
+    try:
+        from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+        carrier = {}
+        TraceContextTextMapPropagator().inject(carrier)
+        traceparent = carrier.get("traceparent")
+    except Exception:
+        pass
+
+    if not traceparent and trace_id:
+        span_id = uuid.uuid4().hex[:16]
+        traceparent = f"00-{trace_id:0>32}-{span_id}-01"
+
     payload = {
         "order_id": new_order.id,
         "product_id": new_order.product_id,
         "quantity": new_order.quantity,
         "trace_id": trace_id,
+        "traceparent": traceparent,
         "enqueued_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
     enqueue_order(payload)

@@ -60,6 +60,33 @@ ORDER_PROCESSING_SECONDS = Histogram(
     buckets=[0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
 )
 
+# --- OpenTelemetry Distributed Tracing Setup (Grafana Tempo) ---
+tracer = None
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+    OTEL_EXPORTER_OTLP_ENDPOINT = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
+
+    resource = Resource.create({
+        "service.name": SERVICE_NAME,
+        "deployment.environment": ENVIRONMENT
+    })
+    provider = TracerProvider(resource=resource)
+    if OTEL_EXPORTER_OTLP_ENDPOINT:
+        otlp_exporter = OTLPSpanExporter(endpoint=OTEL_EXPORTER_OTLP_ENDPOINT)
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
+        print(f"[INFO] OpenTelemetry OTLP Exporter registered for {OTEL_EXPORTER_OTLP_ENDPOINT}", flush=True)
+    trace.set_tracer_provider(provider)
+    tracer = trace.get_tracer(SERVICE_NAME)
+except Exception as exc:
+    tracer = None
+
 # Graceful Shutdown Handlers (Section 1.4c)
 running = True
 
@@ -79,12 +106,37 @@ def get_db_session():
 def process_order(session, order_data: dict):
     """
     Consumes queued order, simulates processing for 1-2 seconds, and updates order status.
+    Implements W3C traceparent context propagation for unified end-to-end distributed tracing.
     Implements CHAOS_MEMORY_LEAK and CHAOS_SLOW_DB if active.
     """
     start_time = time.time()
     order_id = order_data.get("order_id")
-    trace_id = order_data.get("trace_id", uuid.uuid4().hex)
+    traceparent = order_data.get("traceparent")
+    trace_id = order_data.get("trace_id")
+    if not trace_id and traceparent:
+        parts = traceparent.split("-")
+        if len(parts) >= 4:
+            trace_id = parts[1]
+    trace_id = trace_id or uuid.uuid4().hex
 
+    context = None
+    if traceparent:
+        try:
+            from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+            context = TraceContextTextMapPropagator().extract(carrier={"traceparent": traceparent})
+        except Exception:
+            context = None
+
+    if tracer:
+        with tracer.start_as_current_span("process_order", context=context) as span:
+            span.set_attribute("order.id", order_id or 0)
+            span.set_attribute("messaging.system", "redis")
+            span.set_attribute("messaging.destination", REDIS_QUEUE_NAME)
+            _execute_order(session, order_data, order_id, trace_id, start_time)
+    else:
+        _execute_order(session, order_data, order_id, trace_id, start_time)
+
+def _execute_order(session, order_data: dict, order_id: int, trace_id: str, start_time: float):
     log_json("INFO", f"Picked up Order #{order_id} from {REDIS_QUEUE_NAME}. Setting status to PROCESSING.", trace_id)
 
     try:
