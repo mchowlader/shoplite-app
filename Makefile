@@ -3,7 +3,7 @@
 # Checkpoint Command: make up && make smoke
 # ==============================================================================
 
-.PHONY: build up down test smoke lint guardrails help
+.PHONY: build up down test smoke lint guardrails verify help
 
 help:
 	@echo "Available Make targets for ShopLite:"
@@ -13,7 +13,8 @@ help:
 	@echo "  make test       - Run unit tests with pytest"
 	@echo "  make smoke      - Run automated end-to-end smoke test suite"
 	@echo "  make lint       - Run code linters (Flake8)"
-	@echo "  make guardrails - Run pre-commit and syntax verification"
+	@echo "  make verify     - Run YAML/JSON configuration syntax verification"
+	@echo "  make guardrails - Run full verification suite (lint, test, verify)"
 
 build:
 	docker compose build
@@ -30,7 +31,10 @@ test:
 lint:
 	flake8 services/ --count --max-line-length=120
 
-guardrails: lint test
+verify:
+	python scripts/verify-workloads.py
+
+guardrails: lint test verify
 	@echo "Automated guardrails verification completed successfully!"
 
 smoke:
