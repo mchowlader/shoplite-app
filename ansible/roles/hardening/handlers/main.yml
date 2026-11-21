@@ -1,0 +1,7 @@
+---
+# Handlers for hardening role
+- name: Reload SSH Service
+  ansible.builtin.systemd:
+    name: ssh
+    state: reloaded
+

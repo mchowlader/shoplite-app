@@ -55,6 +55,52 @@ pytest tests/ -v
 
 ---
 
+## 📁 Repository Structure (Section 2.1 Deliverables)
+
+This repository serves as the complete, self-contained implementation of all deliverables required for the **ShopLite on AWS Capstone Assessment (DEVOPS-CAP-601)**:
+
+```text
+shoplite-app/
+├── services/                   # Question 1: Decoupled Microservices Source Code
+│   ├── web/                    # Storefront UI (Nginx + HTML5/CSS3)
+│   ├── catalog-api/            # FastAPI REST API (with /healthz, /readyz, /metrics)
+│   └── order-worker/           # Async Redis queue consumer
+├── docker-compose.yml          # Question 2: Local Multi-Container Orchestration & Smoke Testing
+├── linux/                      # Question 3: Linux Hardening, SSH Security & Systemd Backup Timer
+│   ├── setup-linux.sh          # System hardening script
+│   └── sshd_config             # Hardened SSH configuration
+├── terraform/                  # Question 4: Modular AWS IaC with Feature Toggle (Pure SSM / Bastion)
+│   ├── modules/                # Reusable modules (network, compute, alb, ecr)
+│   ├── main.tf                 # Root orchestrator with USD 20 budget Cost Guard
+│   └── variables.tf            # Includes enable_ssh_bastion fallback toggle
+├── ansible/                    # Question 4.g: K8s Node Bootstrapping & Cluster Initialization
+│   ├── cluster-init.yml        # Flannel CNI, Ingress, Argo Rollouts, Local-Path StorageClass
+│   └── run-ansible.sh          # Automated execution harness
+├── helm/                       # Question 5: Production Kubernetes Helm Charts
+│   └── shoplite/               # Values, templates, Argo Rollout Canary, HPA, NetworkPolicies
+├── observability/              # Question 6: Full LGTM Observability Stack
+│   ├── prometheus/             # Prometheus server, node-exporter, alertmanager rules
+│   ├── grafana/                # Grafana dashboards (RED Metrics, Loki, Tempo datasources)
+│   ├── loki/                   # Loki distributed logging
+│   ├── tempo/                  # Tempo distributed tracing
+│   └── deploy-observability.sh # Automated single-click deployment script
+├── monitoring/                 # Question 6: Alias mirror for automated evaluation compatibility
+├── runbooks/                   # Question 8 & Bonus: Chaos Engineering & Operational Runbooks
+│   ├── chaos-simulation.sh     # Chaos failure injection engine
+│   └── slo-burn-rate.md        # SLO error-budget multi-window burn-rate runbook
+├── docs/                       # Architectural Evidence & Post-Mortem Documentation
+│   ├── RCA-INCIDENT-REPORT.md  # Question 8: Formal Incident Post-Mortem (5-Whys, Timeline)
+│   └── ARGO-ROLLOUTS-CANARY-GUIDE.md # Bonus: Progressive delivery canary guide
+├── scripts/                    # Automated smoke test harnesses & validation scripts
+│   └── smoke-test.sh           # End-to-end curl assertion suite
+├── tests/                      # Automated unit test suite (pytest)
+└── .github/workflows/          # Question 7: Automated CI/CD Pipeline (Trivy, Docker, ECR)
+```
+
+> **Note on GitOps Architecture:** To demonstrate enterprise-grade GitOps separation of concerns and prevent CI/CD commit-back loops, Kubernetes manifests are also maintained and synchronized with the dedicated `shoplite-gitops` repository (`https://github.com/mchowlader/shoplite-gitops`).
+
+---
+
 ## ⚙️ Fault-Injection Flags (Chaos Engineering)
 
 All chaos flags are disabled by default and activated via environment variables:
