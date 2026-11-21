@@ -84,13 +84,17 @@ shoplite-app/
 │   ├── loki/                   # Loki distributed logging
 │   ├── tempo/                  # Tempo distributed tracing
 │   └── deploy-observability.sh # Automated single-click deployment script
-├── monitoring/                 # Question 6: Alias mirror for automated evaluation compatibility
 ├── runbooks/                   # Question 8 & Bonus: Chaos Engineering & Operational Runbooks
 │   ├── chaos-simulation.sh     # Chaos failure injection engine
 │   └── slo-burn-rate.md        # SLO error-budget multi-window burn-rate runbook
 ├── docs/                       # Architectural Evidence & Post-Mortem Documentation
+│   ├── architecture-diagram.svg # End-to-end VPC & container architecture diagram
+│   ├── DRY_RUN_EXECUTION_GUIDE.md # Comprehensive dry-run execution runbook
 │   ├── RCA-INCIDENT-REPORT.md  # Question 8: Formal Incident Post-Mortem (5-Whys, Timeline)
-│   └── ARGO-ROLLOUTS-CANARY-GUIDE.md # Bonus: Progressive delivery canary guide
+│   ├── ARGO-ROLLOUTS-CANARY-GUIDE.md # Bonus: Progressive delivery canary guide
+│   ├── q3-verification-evidence.png # Question 3 Linux hardening verification evidence
+│   ├── q4-aws-subnets-evidence.jpg # Question 4 AWS 2-AZ subnets verification evidence
+│   └── q4-terraform-apply-evidence.jpg # Question 4 Terraform apply verification evidence
 ├── scripts/                    # Automated smoke test harnesses & validation scripts
 │   └── smoke-test.sh           # End-to-end curl assertion suite
 ├── tests/                      # Automated unit test suite (pytest)
