@@ -1,9 +1,22 @@
 # ==============================================================================
 # ShopLite: Root Terraform Orchestrator (Question 4: AWS Infrastructure as Code)
 # Assembles 4 Reusable Modules: network, compute, alb, ecr
-# Cost Guard: Project Tagging & USD 20 Budget Alarm
+# Cost Guard: Project Tagging (default_tags) & USD 20 Budget Alarm
 # Region: Singapore (ap-southeast-1)
 # ==============================================================================
+
+# AWS Provider with Mandatory Cost Guard Tagging (project = "shoplite")
+provider "aws" {
+  region = var.aws_region
+
+  default_tags {
+    tags = {
+      project     = "shoplite"
+      environment = var.environment
+      managed_by  = "terraform"
+    }
+  }
+}
 
 # 1. Modular VPC & Least-Privilege Security Groups
 module "network" {
