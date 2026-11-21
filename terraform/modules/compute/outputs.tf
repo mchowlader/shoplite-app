@@ -9,8 +9,8 @@ output "control_plane_private_ip" {
 }
 
 output "control_plane_public_ip" {
-  description = "Public IP address of the control plane node (Bastion SSH entrypoint)"
-  value       = aws_instance.control_plane.public_ip
+  description = "Public IP address of the control plane node (Bastion SSH entrypoint, only when enable_ssh_bastion is true)"
+  value       = var.enable_ssh_bastion ? aws_instance.control_plane.public_ip : null
 }
 
 output "worker_ids" {

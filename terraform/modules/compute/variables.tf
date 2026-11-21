@@ -43,3 +43,9 @@ variable "key_name" {
   default     = ""
 }
 
+variable "enable_ssh_bastion" {
+  description = "Whether to deploy control-plane as a public bastion with SSH access"
+  type        = bool
+  default     = false
+}
+

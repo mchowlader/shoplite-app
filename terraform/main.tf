@@ -13,6 +13,7 @@ module "network" {
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
   environment          = var.environment
+  enable_ssh_bastion   = var.enable_ssh_bastion
 }
 
 # 2. Compute: 1 Control-Plane + 2 Worker EC2 Nodes in Private Subnets
@@ -27,6 +28,7 @@ module "compute" {
   worker_instance_type        = var.worker_instance_type
   worker_node_count           = var.worker_node_count
   key_name                    = var.key_name
+  enable_ssh_bastion          = var.enable_ssh_bastion
 }
 
 # 3. Application Load Balancer in Public Subnets

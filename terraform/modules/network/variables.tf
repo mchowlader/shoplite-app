@@ -18,3 +18,9 @@ variable "environment" {
   type        = string
 }
 
+variable "enable_ssh_bastion" {
+  description = "Whether to allow inbound SSH on port 22 (Bastion fallback)"
+  type        = bool
+  default     = false
+}
+

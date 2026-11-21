@@ -46,8 +46,14 @@ variable "worker_node_count" {
   default     = 2
 }
 
+variable "enable_ssh_bastion" {
+  description = "Enable temporary SSH bastion on control plane for restricted environments where AWS SSM is blocked by SCP"
+  type        = bool
+  default     = false
+}
+
 variable "key_name" {
-  description = "EC2 Key Pair name for SSH administration access"
+  description = "EC2 Key Pair name for SSH administration access (only active when enable_ssh_bastion is true)"
   type        = string
   default     = "shoplite-key"
 }

@@ -17,8 +17,11 @@ control_plane_instance_type = "t3.medium"
 worker_instance_type        = "t3.medium"
 worker_node_count           = 2
 
-# Optional SSH Key Pair Name (leave empty if using SSM Session Manager)
-key_name = ""
+# Access Architecture: Pure SSM vs SSH Bastion Fallback
+# Set to false for 100% Exam-Compliant Pure SSM in Private Subnets (No Port 22, No Public IP)
+# Set to true in Poridhi Lab only if AWS SSM is blocked by sandbox SCP
+enable_ssh_bastion = false
+key_name           = "shoplite-key"
 
 # Cost Guard
 budget_limit_usd = "20"

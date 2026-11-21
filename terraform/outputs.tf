@@ -24,8 +24,8 @@ output "control_plane_private_ip" {
 }
 
 output "control_plane_public_ip" {
-  description = "Public IP of K8s Control Plane instance (Bastion SSH Access)"
-  value       = module.compute.control_plane_public_ip
+  description = "Public IP of K8s Control Plane instance (Bastion SSH Access, null when enable_ssh_bastion is false)"
+  value       = var.enable_ssh_bastion ? module.compute.control_plane_public_ip : null
 }
 
 output "worker_private_ips" {
