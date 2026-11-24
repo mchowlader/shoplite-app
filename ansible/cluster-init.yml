@@ -80,6 +80,14 @@
       register: ingress_patch
       changed_when: "'patched' in ingress_patch.stdout"
 
+    - name: Ensure argo-rollouts namespace exists
+      ansible.builtin.command: kubectl create namespace argo-rollouts
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: argo_ns
+      failed_when: argo_ns.rc != 0 and 'already exists' not in argo_ns.stderr
+      changed_when: "'created' in argo_ns.stdout"
+
     - name: Deploy Argo Rollouts Progressive Delivery Controller
       ansible.builtin.command: kubectl apply --server-side -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
       environment:
