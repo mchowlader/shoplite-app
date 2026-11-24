@@ -5,7 +5,7 @@
 
 - name: Deploy OpenSSH security hardening configuration
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../linux-admin/sshd_shoplite.conf"
+    src: sshd_shoplite.conf
     dest: /etc/ssh/sshd_config.d/99-shoplite.conf
     owner: root
     group: root
@@ -49,7 +49,7 @@
 
 - name: Deploy automated PostgreSQL backup script
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../linux-admin/backup-postgres.sh"
+    src: backup-postgres.sh
     dest: /opt/shoplite/scripts/backup-postgres.sh
     owner: root
     group: shoplite
@@ -57,7 +57,7 @@
 
 - name: Deploy backup systemd service unit
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../linux-admin/shoplite-backup.service"
+    src: shoplite-backup.service
     dest: /etc/systemd/system/shoplite-backup.service
     owner: root
     group: root
@@ -65,7 +65,7 @@
 
 - name: Deploy backup systemd daily timer unit
   ansible.builtin.copy:
-    src: "{{ playbook_dir }}/../linux-admin/shoplite-backup.timer"
+    src: shoplite-backup.timer
     dest: /etc/systemd/system/shoplite-backup.timer
     owner: root
     group: root
