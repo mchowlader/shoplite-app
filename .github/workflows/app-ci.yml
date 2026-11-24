@@ -212,7 +212,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          if git diff --quiet values.yaml; then
+          if git diff --quiet helm/shoplite/values.yaml; then
             echo "No image tag changes detected. Skipping commit."
           else
             git add helm/shoplite/values.yaml
