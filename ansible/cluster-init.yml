@@ -234,6 +234,8 @@
         kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
         kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}'
         kubectl rollout restart deployment/argocd-server -n argocd
+        kubectl rollout status deployment/argocd-server -n argocd --timeout=240s
+        kubectl rollout status deployment/argocd-repo-server -n argocd --timeout=240s
       args:
         executable: /bin/bash
       changed_when: false
@@ -248,18 +250,18 @@
         executable: /bin/bash
       changed_when: false
 
+    - name: Bootstrap ArgoCD App-of-Apps GitOps Root Application (ShopLite + LGTM Observability)
+      ansible.builtin.command: >
+        kubectl apply -f https://raw.githubusercontent.com/mchowlader/shoplite-gitops/main/apps/root-app.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      changed_when: false
+
     - name: Retrieve cluster kubeconfig to operator machine (Question 4.g)
       ansible.builtin.fetch:
         src: /etc/kubernetes/admin.conf
         dest: "{{ playbook_dir }}/kubeconfig"
         flat: true
-
-    - name: Persist ALB DNS on control-plane for Grafana subpath configuration
-      ansible.builtin.copy:
-        dest: /opt/shoplite/alb-dns.txt
-        mode: '0644'
-        content: "{{ alb_dns_name | default('') }}\n"
-      when: alb_dns_name is defined and alb_dns_name != ''
 
     - name: Display cluster node summary
       ansible.builtin.command: kubectl get nodes -o wide

@@ -66,7 +66,7 @@ grafana:
   grafana.ini:
     server:
       enforce_domain: false
-      root_url: "%(protocol)s://%(domain)s/grafana/"
+      root_url: "/grafana/"
       serve_from_sub_path: true
     security:
       cookie_secure: false

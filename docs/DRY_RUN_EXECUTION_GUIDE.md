@@ -85,11 +85,12 @@ Both repositories follow the exact `DEVOPS-CAP-601` structure without duplicate 
   - `terraform/modules/{network,compute,alb,ecr}/` + `bootstrap-backend.sh` + `cleanup-backend.sh`: Q4 IaC with Pure SSM (`enable_ssh_bastion=false`) and Bastion fallback (`enable_ssh_bastion=true`).
   - `ansible/{ansible.cfg,site.yml,playbook.yml,cluster-init.yml,run-ansible.sh,roles/}`: Q3 + Q4.g automation.
   - `helm/shoplite/`: Q5 single Helm chart (Probes, HPA, PDB, NetworkPolicy, non-root, Ingress, optional Canary Rollout).
-  - `monitoring/{alert-rules,dashboards,grafana,loki,prometheus,runbooks,tempo,deploy-observability.sh}`: Q6 LGTM stack & alerts.
+  - `monitoring/{alert-rules,dashboards,grafana,loki,prometheus,runbooks,tempo,kustomization.yaml}`: Q6 LGTM stack, Kustomize ConfigMaps, and alert rules.
   - `.github/workflows/app-ci.yml`: Q7 PR validation + main CI/CD (Hadolint, Pytest, Helm lint, Trivy CRITICAL fail, ECR push, `shoplite-gitops` SHA bump).
-  - `scripts/deploy-platform.sh`, `scripts/load-test.py`, `docs/`: Platform bootstrap, Q8 load generator, architecture SVG, and RCA template.
+  - `scripts/{smoke-test.sh,load-test.py,verify-workloads.py}`, `docs/`: Local smoke test, Q8 load generator, architecture SVG, and RCA template.
 - **`shoplite-gitops/`**
-  - `apps/argocd-applications/{shoplite-dev.yaml,shoplite-prod.yaml}`: Dev (auto-sync + self-heal) and Prod (manual sync + self-heal).
+  - `apps/root-app.yaml`: Pure GitOps ArgoCD App-of-Apps entrypoint.
+  - `apps/argocd-applications/{shoplite-dev.yaml,shoplite-prod.yaml,monitoring-*.yaml}`: Declarative ArgoCD Applications for ShopLite Dev/Prod and the entire LGTM observability stack.
   - `envs/{dev,prod}/values.yaml`: Environment overrides updated by CI without ever running `kubectl apply` inside GitHub Actions.
 
 ---
@@ -132,22 +133,21 @@ cd "/mnt/d/MCH/DevOps/DevOpsPractices/Final Capstone Assessment/shoplite-app/ans
 ./run-ansible.sh all
 ```
 - `run-ansible.sh` automatically waits until all 3 EC2 nodes register `Online` in AWS SSM, then runs `site.yml` (`playbook.yml` + `cluster-init.yml`) over AWS SSM—zero manual SSH required.
-- Automatically configures `deploy`/`ops`, `setfacl`, `sshd`, UFW, `shoplite-backup.timer`, `containerd`, `kubelet` ECR credential provider, `kubeadm`, Calico CNI, 10 GB EBS mounts (`/var/lib/shoplite-storage`), `ingress-nginx` DaemonSet, `local-path` StorageClass, `shoplite-db-secret` (out-of-band), ArgoCD, Argo Rollouts, and writes `/opt/shoplite/alb-dns.txt`.
+- Automatically configures `deploy`/`ops`, `setfacl`, `sshd`, UFW, `shoplite-backup.timer`, `containerd`, `kubelet` ECR credential provider, `kubeadm`, Calico CNI, 10 GB EBS mounts (`/var/lib/shoplite-storage`), `ingress-nginx` DaemonSet, `local-path` StorageClass, `shoplite-db-secret` (out-of-band), ArgoCD, Argo Rollouts, and bootstraps the ArgoCD App-of-Apps (`root-app.yaml`) from `shoplite-gitops`.
 
-### Step 5: Deploy ShopLite GitOps Apps & LGTM Observability via SSM (One Command)
-Connect directly to the private Control Plane node using AWS SSM Session Manager from WSL2:
+### Step 5: Verify Declarative ArgoCD Sync & Live Endpoints via SSM
+ArgoCD automatically deploys `shoplite-dev`, `kube-prometheus-stack`, `loki`, `promtail`, `tempo`, and `monitoring-config` directly from Git (no Control-Plane `git clone` or bash deploy scripts needed). Open an AWS SSM session on Control Plane to check pod/sync status and print the ArgoCD initial admin password:
 ```bash
-CP_ID="$(terraform -chdir=../terraform output -raw control_plane_id)"
-aws ssm start-session --target "${CP_ID}" --region ap-southeast-1
+aws ssm start-session --target "$(terraform -chdir=../terraform output -raw control_plane_id)" --region ap-southeast-1
 ```
-Inside the SSM session, switch to `ubuntu`, clone both repos, and run the single platform script:
+Inside Control Plane (`sudo -iu ubuntu`):
 ```bash
-sudo -iu ubuntu
-git clone https://github.com/mchowlader/shoplite-app.git ~/shoplite-app
-git clone https://github.com/mchowlader/shoplite-gitops.git ~/shoplite-gitops
-~/shoplite-app/scripts/deploy-platform.sh
+kubectl get applications -n argocd
+kubectl get pods -n shoplite-dev
+kubectl get pods -n monitoring
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d; echo
 ```
-This registers `shoplite-dev` (auto-sync) and `shoplite-prod` (manual-sync) in ArgoCD, auto-reads `/opt/shoplite/alb-dns.txt` so Grafana binds to the exact ALB domain, deploys Prometheus + Alertmanager + Loki + Promtail + Tempo + Grafana into `monitoring`, and prints all live URLs and the ArgoCD admin password.
+*(If updating an already-provisioned cluster, bootstrap once with `kubectl apply -f https://raw.githubusercontent.com/mchowlader/shoplite-gitops/main/apps/root-app.yaml`.)*
 
 ---
 
@@ -158,7 +158,7 @@ This registers `shoplite-dev` (auto-sync) and `shoplite-prod` (manual-sync) in A
 - **Poridhi Requirement:** Question 6 deploys Grafana inside the `monitoring` namespace so reviewers can correlate Metrics → Logs (`trace_id`) → Tempo Traces in `< 2 minutes`. It does not restrict you to a single URL path; exposing `/grafana/` via `ingress-nginx` behind the ALB is the standard seamless entry point.
 - **Why Grafana Previously Stuck After Login (Fixed):**
   1. `kube-prometheus-stack-values.yaml` used `root_url: "%(protocol)s://%(domain)s/grafana/"` without overriding default `domain=localhost` or HTTP cookie flags, causing Grafana 11 login redirects/CSRF cookies to fail on `http://<ALB-DNS>/grafana/`.
-  2. **Applied Fix:** `kube-prometheus-stack-values.yaml` now sets `enforce_domain: false`, `cookie_secure: false`, `cookie_samesite: lax`, `allow_embedding: true`, `grafana-ingress.yaml` increases `proxy-buffer-size: "16k"`, and `deploy-observability.sh` automatically injects `server.domain=<ALB-DNS>` from `/opt/shoplite/alb-dns.txt`.
+  2. **Applied Fix:** `kube-prometheus-stack-values.yaml` sets `enforce_domain: false`, `root_url: "/grafana/"`, `serve_from_sub_path: true`, `cookie_secure: false`, and `cookie_samesite: lax` (verified live over dynamic ALB `Host` header), while `grafana-ingress.yaml` increases `proxy-buffer-size: "16k"`.
   3. Always open `http://<ALB-DNS>/grafana/` in a clean/incognito tab so stale `/` or `localhost` session cookies don't conflict.
   4. **Direct SSM Port-Forward Fallback (zero ingress dependency):** From WSL2, run `kubectl` port-forward via SSM (`AWS-StartPortForwardingSessionToRemoteHost` or inside SSM session) if ever needed for debugging.
 

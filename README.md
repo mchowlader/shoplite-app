@@ -74,8 +74,8 @@ shoplite-app/
 │   ├── main.tf                 # Root orchestrator with USD 20 budget Cost Guard
 │   └── variables.tf            # Includes enable_ssh_bastion fallback toggle
 ├── ansible/                    # Question 4.g: K8s Node Bootstrapping & Cluster Initialization
-│   ├── cluster-init.yml        # Flannel CNI, Ingress, Argo Rollouts, Local-Path StorageClass
-│   └── run-ansible.sh          # Automated execution harness
+│   ├── cluster-init.yml        # Calico CNI, Ingress, ArgoCD, Argo Rollouts, Local-Path StorageClass
+│   └── run-ansible.sh          # Optional execution wrapper
 ├── helm/                       # Question 5: Production Kubernetes Helm Charts
 │   └── shoplite/               # Values, templates, Argo Rollout Canary, HPA, NetworkPolicies
 ├── monitoring/                 # Question 6 & 8: LGTM Observability Stack & Runbooks
@@ -86,7 +86,7 @@ shoplite-app/
 │   ├── grafana/                # Datasources (Prometheus, Loki, Tempo) & Ingress
 │   ├── loki/                   # Loki & Promtail log aggregation configs
 │   ├── tempo/                  # Tempo distributed tracing config
-│   └── deploy-observability.sh # Automated single-command deployment script
+│   └── kustomization.yaml      # Declarative GitOps bundle (ConfigMaps, ServiceMonitors, Alerts, Ingress)
 ├── docs/                       # Architectural Evidence & Post-Mortem Documentation
 │   ├── architecture-diagram.svg # End-to-end VPC & container architecture diagram
 │   ├── DRY_RUN_EXECUTION_GUIDE.md # 5-hour lab execution runbook
