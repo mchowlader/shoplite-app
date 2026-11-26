@@ -6,26 +6,36 @@ __pycache__/
 *.so
 .Python
 
-# Environments & VirtualEnvs
+# VirtualEnvs & Secrets
 .venv/
 .venv*/
 **/venv/
 **/env/
 **/ENV/
+.env
+.env.*
+*.pem
+*.key
 
-# Testing & Coverage
+# Testing & Databases
 **/.pytest_cache/
 .pytest_cache/
 .coverage
 htmlcov/
-
-# Local SQLite & Databases
 *.db
 **/*.db
 *.sqlite
 *.sqlite3
 shoplite_test.db
-**/shoplite_test.db
+
+# Terraform & Ansible Generated Artifacts
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/terraform.tfvars
+terraform/backend.hcl
+terraform/plan.txt
+ansible/kubeconfig
 
 # OS & Editor Files
 .DS_Store
@@ -33,4 +43,3 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
-

@@ -16,6 +16,14 @@ htmlcov/
 .github/
 .vscode/
 .idea/
+.env
+.env.*
 *.md
+*.db
 tests/
-shoplite_test.db
+terraform/
+ansible/
+helm/
+monitoring/
+linux/
+docs/

@@ -1,9 +1,11 @@
 # ==============================================================================
-# ShopLite Makefile — Question 2.d Automation Target Specifications
+# ShopLite Makefile — Question 2.d Automation Targets
 # Checkpoint Command: make up && make smoke
 # ==============================================================================
 
-.PHONY: build up down test smoke lint guardrails verify help
+PYTHON := $(shell command -v python3 2>/dev/null || command -v python 2>/dev/null)
+
+.PHONY: build up down test smoke lint verify guardrails help
 
 help:
 	@echo "Available Make targets for ShopLite:"
@@ -26,17 +28,17 @@ down:
 	docker compose down -v
 
 test:
-	pytest tests/ -v
+	$(PYTHON) -m pytest tests/ -v
 
 lint:
-	flake8 services/ --count --max-line-length=120
+	$(PYTHON) -m flake8 services/ tests/ --count --max-line-length=120
 
 verify:
-	python scripts/verify-workloads.py
+	$(PYTHON) scripts/verify-workloads.py
 
 guardrails: lint test verify
 	@echo "Automated guardrails verification completed successfully!"
 
 smoke:
 	chmod +x scripts/smoke-test.sh
-	./scripts/smoke-test.sh
+	SKIP_COMPOSE_UP=1 ./scripts/smoke-test.sh

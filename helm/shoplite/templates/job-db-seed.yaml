@@ -1,0 +1,91 @@
+{{- if and .Values.postgres.enabled .Values.postgres.seedJob .Values.postgres.seedJob.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "shoplite.fullname" . }}-db-seed
+  labels:
+    {{- include "shoplite.labels" . | nindent 4 }}
+    app.kubernetes.io/component: db-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 5
+  template:
+    metadata:
+      labels:
+        {{- include "shoplite.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: db-seed
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 70
+        runAsGroup: 70
+        runAsNonRoot: true
+      containers:
+        - name: db-seed
+          securityContext:
+            allowPrivilegeEscalation: false
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          env:
+            - name: PGHOST
+              value: {{ include "shoplite.fullname" . }}-postgres
+            - name: PGPORT
+              value: {{ .Values.postgres.service.port | quote }}
+            - name: PGDATABASE
+              value: {{ .Values.postgres.auth.database | quote }}
+            - name: PGUSER
+              value: {{ .Values.postgres.auth.username | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.auth.existingSecret | default (printf "%s-db-secret" (include "shoplite.fullname" .)) }}
+                  key: {{ .Values.postgres.auth.secretKeys.adminPasswordKey }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              until pg_isready -h "$PGHOST" -p "$PGPORT" -U "$PGUSER"; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              psql -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE TABLE IF NOT EXISTS products (
+                id SERIAL PRIMARY KEY,
+                name VARCHAR(150) NOT NULL,
+                price DOUBLE PRECISION NOT NULL,
+                stock INTEGER NOT NULL DEFAULT 50
+              );
+              CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
+                product_id INTEGER NOT NULL REFERENCES products(id),
+                quantity INTEGER NOT NULL DEFAULT 1,
+                status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+                created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
+                completed_at TIMESTAMP WITHOUT TIME ZONE
+              );
+              INSERT INTO products (name, price, stock)
+              SELECT v.name, v.price, v.stock
+              FROM (VALUES
+                ('Cloud DevOps Handbook', 49.99, 100),
+                ('Production Kubernetes', 59.99, 80),
+                ('Site Reliability Engineering Guide', 64.99, 75),
+                ('Terraform Enterprise Patterns', 45.00, 90),
+                ('AWS Solutions Architect Manual', 55.00, 60),
+                ('Docker Deep Dive & Security', 39.99, 110),
+                ('Linux Administration Bible', 42.50, 85),
+                ('Observability with Prometheus & Grafana', 48.00, 70),
+                ('Chaos Engineering & Resilience', 52.00, 50),
+                ('GitOps with ArgoCD & Flux', 46.50, 95)
+              ) AS v(name, price, stock)
+              WHERE NOT EXISTS (SELECT 1 FROM products);
+              SQL
+              echo "ShopLite PostgreSQL schema and seed verified."
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+{{- end }}

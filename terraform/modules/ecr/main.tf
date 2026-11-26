@@ -36,9 +36,8 @@ resource "aws_ecr_lifecycle_policy" "cleanup_policy" {
         description  = "Retain last 15 images to avoid billing accumulation"
         selection = {
           tagStatus   = "any"
-          countType   = "sinceImagePushed"
-          countUnit   = "days"
-          countNumber = 14
+          countType   = "imageCountMoreThan"
+          countNumber = 15
         }
         action = {
           type = "expire"

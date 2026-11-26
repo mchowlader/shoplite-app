@@ -1,116 +1,46 @@
-# 📋 Incident Post-Mortem & Root Cause Analysis (RCA) Report
+# Root Cause Analysis (RCA) — ShopLite Chaos Day Exercise (Question 8)
 
-**Assessment Code:** `DEVOPS-CAP-601` | **Day 9 Deliverable**  
-**Marks:** 12.5 Marks  
-**Incident Title:** `INC-20261117-01: Degradation of Catalog API due to Memory Exhaustion & Cascading Database Connection Pool Starvation`  
-**Severity:** `SEV-1 (Critical)`  
-**Impacted Service:** `shoplite-backend` (Catalog API), `shoplite-order-worker`  
-**Time to Detect (TTD):** 2 Minutes  
-**Time to Mitigate (TTM):** 7 Minutes  
-**Time to Resolve (TTR):** 14 Minutes  
-**Incident Commander:** Lead SRE / DevOps Student  
+**Assessment Code:** `DEVOPS-CAP-601`  
+**Service:** ShopLite (`catalog-api` + `order-worker`) in `shoplite` namespace  
+**Note:** Replace timestamps, trace IDs, and screenshots below with your live Chaos Day exercise evidence after running the 15-minute load test (`scripts/load-test.py --url http://<ALB-DNS> --rps 25 --duration 900`).
 
 ---
 
-## 📌 1. Executive Summary
-On 17 November 2026 between 09:15 UTC and 09:29 UTC, ShopLite production experienced an elevated error rate where HTTP 5xx responses surged to **18.4%** (exceeding the 5.0% threshold) and 95th percentile latency increased from **42ms to 3.52s**. 
+## 1. Incident Timeline (UTC)
 
-The root cause was a combination of an unconstrained memory leak under sudden traffic spikes leading to Linux kernel OOMKill events on `shoplite-backend` pods, compounded by lingering unclosed PostgreSQL transaction connections that exhausted the connection pool (`MaxActive=20`).
-
-The incident was automatically detected by Prometheus alerts (`HighErrorRate`, `PodCrashLooping`) and the Google SRE Multi-Window Burn Rate alert (`ErrorBudgetBurnRateCritical1h`). Mitigation was achieved via Argo Rollouts automated canary abort and GitOps-managed self-healing.
-
----
-
-## ⏱️ 2. Incident Timeline (UTC)
-
-| Timestamp | Event Description | Observability Trigger / Signal |
+| Timestamp | Event | Telemetry Signal |
 |---|---|---|
-| **09:15:00** | Traffic surge injected via Chaos Engineering test suite (`chaos-simulation.sh memory`). | Memory utilization spikes from 110Mi to 256Mi limit. |
-| **09:16:15** | Kernel OOMKiller terminates `shoplite-backend-78b9f` pod (`Exit Code 137`). | K8s Event: `Killing container with id containerd://backend: Need to kill pod`. |
-| **09:17:00** | **Alert Fires:** `ErrorBudgetBurnRateCritical1h` triggers on Prometheus. | Burn rate hits **14.4x** (2% budget consumed per hour). |
-| **09:18:30** | **Alert Fires:** `HighErrorRate` triggers in Alertmanager. | HTTP 5xx rate reaches **18.4%** over 5-minute rolling window. |
-| **09:19:10** | On-Call Engineer joins incident channel; inspects Grafana RED dashboard. | RED dashboard shows Rate: 120 req/s, Errors: 18.4%, Latency p95: 3.5s. |
-| **09:20:45** | Trace waterfall correlation in Tempo reveals bottleneck at `/api/products` database checkout query. | Trace ID `9a3f1b4c7d0e8f2a` shows `db.query` span duration of **3,520ms**. |
-| **09:22:00** | **Mitigation Executed:** Scaled backend replicas and executed Argo Rollout rollback to stable revision. | Traffic routed away from degraded pods. |
-| **09:25:30** | Database idle connections purged; pod restarts stabilize to 0. | HTTP 5xx rate drops to **0.02%**; p95 latency drops to **45ms**. |
-| **09:29:00** | **All Clear:** Alertmanager resolves `HighErrorRate` and `ErrorBudgetBurnRateCritical1h`. | Incident formally closed. |
+| `T+00:00` | Peer modifies `envs/prod/values.yaml` in `shoplite-gitops` and commits change; load test starts at 25 RPS. | Traffic Rate panel rises to ~25 req/s. |
+| `T+05:00` | Alert fires in Prometheus/Alertmanager (`HighErrorRate` / `HighLatency` / `PodCrashLooping` / `QueueBacklog`). | Alertmanager notification fired with severity and runbook URL. |
+| `T+06:30` | On-call investigates Grafana **ShopLite - Golden Signals** dashboard -> drills into **Loki** (`{namespace="shoplite"}`) -> jumps via `trace_id` to **Tempo**. | Correlation pinpoints failing span/component without reading pod env vars or Git diff. |
+| `T+10:00` | Root cause confirmed from metrics, JSON logs, and Tempo span waterfall; faulty commit reverted in `shoplite-gitops`. | ArgoCD syncs production state back to clean baseline. |
+| `T+12:00` | Error rate returns to 0%, p95 latency normalizes, queue drains, alerts resolve. | Recovery verified on Grafana Golden Signals dashboard. |
 
 ---
 
-## 🔍 3. 5-Whys Root Cause Analysis
+## 2. Detection
 
-1. **Why did users experience HTTP 500 errors and high latency?**  
-   *Because the backend Catalog API pods were crashing repeatedly in `CrashLoopBackOff`, dropping in-flight HTTP requests.*
-2. **Why were backend pods crashing?**  
-   *Because the Linux kernel OOMKiller terminated the backend container (`Exit Code 137`) when its memory exceeded the hard cgroup limit of 256Mi.*
-3. **Why did the memory consumption exceed the 256Mi limit?**  
-   *Because an unoptimized batch query was holding large in-memory JSON result sets during order processing without streaming responses.*
-4. **Why didn't the pods scale horizontally before crashing?**  
-   *Because the Horizontal Pod Autoscaler (HPA) was configured with an average CPU threshold (70%) but lacked a dedicated memory target utilization metric.*
-5. **Why were database queries locking after pod restarts?**  
-   *Because abrupt pod termination left orphaned connection handles in PostgreSQL, temporarily exhausting the `max_connections` pool until connection timeout.*
+- **First Alert Triggered:** `<HighErrorRate | HighLatency | QueueBacklog | PodCrashLooping>`
+- **Why It Triggered:** PromQL condition exceeded threshold across the evaluation window (`for: 5m` or `10m`) under sustained 25 RPS load.
 
 ---
 
-## 📊 4. Telemetry & Observability Evidence
+## 3. Investigation Trail (`Dashboard -> Logs -> Trace`)
 
-### A. Prometheus Metrics & Alert Verification
-During the incident, Prometheus evaluated the following expressions confirming alert activation:
-```promql
-# Metric: HTTP 5xx Error Percentage (Surged to 18.4%)
-(sum(rate(http_requests_total{status=~"5..", app="shoplite"}[5m])) / sum(rate(http_requests_total{app="shoplite"}[5m]))) * 100
-# Result: 18.42% (Threshold: > 5.0%) -> HighErrorRate FIRED
-
-# Metric: 95th Percentile Latency (Spiked to 3.52s)
-histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app="shoplite"}[5m])) by (le))
-# Result: 3.52s (Threshold: > 1.0s) -> HighLatency FIRED
-
-# Metric: Google SRE 1-hour Burn Rate
-(sum(rate(http_requests_total{status=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))) / 0.005
-# Result: 14.8x (Threshold: > 14.4x) -> ErrorBudgetBurnRateCritical1h FIRED
-```
-
-### B. Loki Log Correlation (Unified Trace ID)
-Log aggregation in Loki captured the crash and linked it to the exact distributed trace:
-```json
-{
-  "timestamp": "2026-11-17T09:16:14.281Z",
-  "level": "ERROR",
-  "logger": "shoplite.backend",
-  "trace_id": "9a3f1b4c7d0e8f2a",
-  "span_id": "c4d7e2b10f5a8912",
-  "message": "Database connection pool timeout while awaiting free slot (active: 20/20)",
-  "error_type": "asyncpg.exceptions.PoolAcquireTimeoutError",
-  "endpoint": "/api/orders"
-}
-```
-
-### C. Tempo Distributed Trace Waterfall
-* **Trace ID:** `9a3f1b4c7d0e8f2a`
-* **Root Span:** `HTTP POST /api/orders` (Total Duration: **3,524ms**)
-  * `├─ telemetry_middleware` [3,524ms]
-  * `├─ auth.validate_jwt` [2ms]
-  * `└─ db.acquire_connection_and_insert` [**3,518ms**] $\leftarrow$ *Root Bottleneck*
+1. **Grafana Golden Signals Dashboard:** Checked `HTTP 5xx Error Rate`, `Latency (p50, p95, p99) per Route`, `Order Queue Depth`, `Orders Created vs Processed`, and `Pod Memory/CPU`.
+2. **Loki Logs (`{namespace="shoplite"}`):** Filtered error/warning JSON logs (`level="ERROR"` or `level="WARNING"`) to extract `trace_id` and failing service (`catalog-api` or `order-worker`).
+3. **Tempo Distributed Trace:** Followed `trace_id` from Loki Derived Field (or histogram Exemplar) to inspect the waterfall across `HTTP -> catalog-api -> redis -> order-worker -> postgresql` (`SQLAlchemy`/`psycopg2`).
 
 ---
 
-## 🛠️ 5. Immediate Mitigation vs. Permanent Preventive Actions
+## 4. Identified Root Cause & Recovery Time
 
-| Action Item | Category | Status | Owner | Verification |
-|---|---|---|---|---|
-| Scaled backend replicas to 4 and aborted faulty canary rollout | Immediate Mitigation | **DONE** | SRE Team | Pods healthy, HTTP 200 restored |
-| Added memory target utilization (75%) to HPA in `hpa.yaml` | Preventive (Code) | **DONE** | DevOps Team | HPA scales on either CPU > 70% or Memory > 75% |
-| Configured PostgreSQL connection pool recycling (`pool_recycle=300`) and statement timeout (`timeout=5.0s`) | Preventive (Config) | **DONE** | Backend Team | No leaked connections on pod crash |
-| Activated Google SRE Multi-Window Multi-Burn-Rate alerting in Alertmanager | SRE Standard | **DONE** | SRE Team | Alerts fire in test simulations |
-| Automated Progressive Delivery with Argo Rollouts Canary & AnalysisTemplate | Deployment Resilience | **DONE** | DevOps Team | Faulty canary auto-rolls back if 5xx > 1% |
+- **Root Cause:** Fault injection enabled via `envs/prod/values.yaml` (`CHAOS_ERROR_RATE` / `CHAOS_LATENCY_MS` / `CHAOS_MEMORY_LEAK` / `CHAOS_SLOW_DB`), diagnosed strictly from observability signals before checking Git diff.
+- **Recovery Action:** Reverted the peer commit in `shoplite-gitops` (`git revert <commit-sha> && git push`) and synchronized ArgoCD (`shoplite-prod`).
+- **Recovery Time (TTR):** `<MM> minutes <SS> seconds`.
 
 ---
 
-## 🔄 6. GitOps Self-Healing & Verification
-The fix for the memory limits and connection pool timeouts was codified into `shoplite-gitops/helm/shoplite/values.yaml` and committed to Git (`main` branch).
+## 5. Preventive Measure
 
-ArgoCD detected the Git commit, flagged the cluster as `OutOfSync`, and executed automated self-healing reconciliation within **18 seconds**:
-* Outdated pods terminated gracefully (`terminationGracePeriodSeconds: 30`).
-* New pods deployed with updated memory request (`128Mi`) and limit (`512Mi`).
-* PostgreSQL connection healthcheck probe asserted zero leaked zombie connections.
-* Prometheus error rate settled at **0.00%**.
+- Enforce GitOps pull-request review (`CODEOWNERS` + branch protection on `shoplite-gitops` `main`) and automated post-deploy Canary metric gates (`Argo Rollouts` `AnalysisTemplate`) so any commit degrading error rate (>1%) or p95 latency (>500ms) is blocked or automatically rolled back.

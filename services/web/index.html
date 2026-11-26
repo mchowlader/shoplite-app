@@ -187,11 +187,11 @@
   <!-- Client Logic -->
   <script>
     // Smart API Base URL:
-    // When served directly as a local file or dev server (file:// or localhost:3000), connect to catalog-api on port 8000.
-    // When served in production behind Nginx/ALB on port 80, use relative paths.
+    // When served via file:// or standalone local dev server (port 3000/5173), hit localhost:8000 directly.
+    // When served via Nginx or Kubernetes Ingress, route via /api so both Ingress /api and Nginx proxy work.
     let API_BASE = "http://localhost:8000";
-    if (window.location.protocol.startsWith("http") && (window.location.port === "80" || (window.location.port === "" && window.location.hostname !== "localhost"))) {
-      API_BASE = "";
+    if (window.location.protocol.startsWith("http") && !["3000", "5173"].includes(window.location.port)) {
+      API_BASE = "/api";
     }
 
     // Set header links dynamically

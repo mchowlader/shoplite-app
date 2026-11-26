@@ -1,4 +1,38 @@
 {{- if .Values.ingress.enabled }}
+{{- if and .Values.ingress.apiPath .Values.ingress.apiPath.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "shoplite.fullname" . }}-api-ingress
+  labels:
+    {{- include "shoplite.labels" . | nindent 4 }}
+  annotations:
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: {{ .Values.ingress.apiPath.rewriteTarget | default "/$2" | quote }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- if .Values.ingress.apiPath.host }}
+    - host: {{ .Values.ingress.apiPath.host | quote }}
+      http:
+    {{- else }}
+    - http:
+    {{- end }}
+        paths:
+          - path: {{ .Values.ingress.apiPath.path | default "/api(/|$)(.*)" }}
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ printf "%s-%s" (include "shoplite.fullname" .) (.Values.ingress.apiPath.service | default "backend") }}
+                port:
+                  number: {{ .Values.ingress.apiPath.port | default 8000 }}
+---
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

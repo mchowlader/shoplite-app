@@ -9,7 +9,7 @@ variable "private_subnet_ids" {
 }
 
 variable "public_subnet_ids" {
-  description = "Optional list of public subnet IDs (used to give control plane public IP as bastion)"
+  description = "Optional list of public subnet IDs (used when enable_ssh_bastion is true)"
   type        = list(string)
   default     = []
 }
@@ -17,6 +17,12 @@ variable "public_subnet_ids" {
 variable "nodes_security_group_id" {
   description = "Security Group ID for K8s nodes"
   type        = string
+}
+
+variable "bastion_security_group_id" {
+  description = "Conditional Bastion Security Group ID attached only to control-plane when enable_ssh_bastion is true"
+  type        = string
+  default     = ""
 }
 
 variable "control_plane_instance_type" {
@@ -37,6 +43,12 @@ variable "worker_node_count" {
   default     = 2
 }
 
+variable "storage_volume_size_gb" {
+  description = "Size in GB of dedicated gp3 EBS volume attached to each worker for DB and observability PVCs"
+  type        = number
+  default     = 10
+}
+
 variable "key_name" {
   description = "Optional Key Pair name for SSH"
   type        = string
@@ -44,8 +56,7 @@ variable "key_name" {
 }
 
 variable "enable_ssh_bastion" {
-  description = "Whether to deploy control-plane as a public bastion with SSH access"
+  description = "Whether to deploy control-plane with public bastion SSH access"
   type        = bool
   default     = false
 }
-

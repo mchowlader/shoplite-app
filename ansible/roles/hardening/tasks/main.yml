@@ -1,16 +1,36 @@
 ---
 # ==============================================================================
-# Role: hardening — Linux Security Hardening, RBAC, and Backup Automations (Question 3 & 4.g)
+# Role: hardening — Question 3 & 4.g Host Security Hardening on Every Node
+# Single canonical source from ../linux/ (zero duplicated files).
 # ==============================================================================
 
 - name: Deploy OpenSSH security hardening configuration
   ansible.builtin.copy:
-    src: sshd_shoplite.conf
+    src: "{{ playbook_dir }}/../linux/sshd_config"
     dest: /etc/ssh/sshd_config.d/99-shoplite.conf
     owner: root
     group: root
     mode: '0644'
   notify: Reload SSH Service
+
+- name: Validate complete OpenSSH configuration syntax
+  ansible.builtin.command: /usr/sbin/sshd -t
+  changed_when: false
+
+- name: Ensure ops group exists (Question 3.1)
+  ansible.builtin.group:
+    name: ops
+    state: present
+
+- name: Ensure deploy user exists and belongs to ops group (Question 3.1)
+  ansible.builtin.user:
+    name: deploy
+    group: ops
+    groups: ops
+    append: true
+    shell: /bin/bash
+    create_home: true
+    state: present
 
 - name: Ensure shoplite service group exists
   ansible.builtin.group:
@@ -39,33 +59,62 @@
       # Least-privilege sudoers rule for ShopLite maintenance
       shoplite ALL=(ALL) NOPASSWD: /usr/bin/systemctl status shoplite-*, /usr/bin/journalctl -u shoplite-*, /opt/shoplite/scripts/*
 
-- name: Create ShopLite operational scripts directory
+- name: Configure /var/log/shoplite permissions and default ACL (Question 3.2)
   ansible.builtin.file:
-    path: /opt/shoplite/scripts
+    path: /var/log/shoplite
     state: directory
     owner: root
-    group: shoplite
+    group: ops
     mode: '0750'
 
-- name: Deploy automated PostgreSQL backup script
+- name: Apply single default setfacl rule for ops group on /var/log/shoplite
+  ansible.builtin.command: setfacl -d -m g:ops:r-x /var/log/shoplite
+  changed_when: false
+
+- name: Create ShopLite operational scripts and backup directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /opt/shoplite/scripts, group: shoplite, mode: '0750' }
+    - { path: /var/backups/shoplite, group: root, mode: '0700' }
+
+- name: Deploy automated PostgreSQL backup script (Question 3.3)
   ansible.builtin.copy:
-    src: backup-postgres.sh
+    src: "{{ playbook_dir }}/../linux/systemd/backup-postgres.sh"
     dest: /opt/shoplite/scripts/backup-postgres.sh
     owner: root
     group: shoplite
     mode: '0750'
 
-- name: Deploy backup systemd service unit
+- name: Deploy backup systemd service unit (without hard Docker dependency for K8s nodes)
   ansible.builtin.copy:
-    src: shoplite-backup.service
     dest: /etc/systemd/system/shoplite-backup.service
     owner: root
     group: root
     mode: '0644'
+    content: |
+      [Unit]
+      Description=ShopLite PostgreSQL Automated Backup Service
+      After=network-online.target
+      Wants=network-online.target
 
-- name: Deploy backup systemd daily timer unit
+      [Service]
+      Type=oneshot
+      User=root
+      Restart=on-failure
+      RestartSec=30s
+      EnvironmentFile=-/etc/default/shoplite-backup
+      ExecStart=/opt/shoplite/scripts/backup-postgres.sh
+      StandardOutput=journal
+      StandardError=journal
+
+- name: Deploy backup systemd daily timer unit (Question 3.3)
   ansible.builtin.copy:
-    src: shoplite-backup.timer
+    src: "{{ playbook_dir }}/../linux/systemd/shoplite-backup.timer"
     dest: /etc/systemd/system/shoplite-backup.timer
     owner: root
     group: root
@@ -78,3 +127,20 @@
     enabled: true
     daemon_reload: true
 
+- name: Configure UFW firewall rules (Question 3.4 + Kubernetes forwarding & intra-cluster safety)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    sed -i 's/^DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw default allow routed
+    ufw allow 22/tcp comment 'SSH administration'
+    ufw allow 80/tcp comment 'HTTP Ingress'
+    ufw allow 443/tcp comment 'HTTPS Ingress'
+    ufw allow from 10.0.0.0/16 comment 'VPC intra-cluster nodes and ALB'
+    ufw allow from 10.244.0.0/16 comment 'Kubernetes Pod CIDR (Calico)'
+    ufw allow from 10.96.0.0/12 comment 'Kubernetes Service CIDR'
+    ufw --force enable
+  args:
+    executable: /bin/bash
+  changed_when: false

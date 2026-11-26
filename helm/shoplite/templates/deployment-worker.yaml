@@ -7,7 +7,9 @@ metadata:
     {{- include "shoplite.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
   replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "shoplite.selectorLabels" . | nindent 6 }}
@@ -17,28 +19,50 @@ spec:
       labels:
         {{- include "shoplite.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: worker
+        app: shoplite
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds | default 60 }}
       securityContext:
         runAsUser: {{ .Values.securityContext.runAsUser }}
         runAsGroup: {{ .Values.securityContext.runAsGroup }}
         runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
       containers:
         - name: worker
+          securityContext:
+            allowPrivilegeEscalation: false
           image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.worker.service.port | default 9101 }}
+              protocol: TCP
           envFrom:
             - configMapRef:
                 name: {{ include "shoplite.fullname" . }}-config
           env:
+            - name: METRICS_PORT
+              value: {{ .Values.worker.service.port | default 9101 | quote }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.postgres.auth.existingSecret | default (printf "%s-db-secret" (include "shoplite.fullname" .)) }}
                   key: {{ .Values.postgres.auth.secretKeys.adminPasswordKey }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 10
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
 {{- end }}

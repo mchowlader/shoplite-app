@@ -1,4 +1,4 @@
-{{- if and .Values.backend.enabled .Values.argoRollouts .Values.argoRollouts.enabled .Values.argoRollouts.analysis .Values.argoRollouts.analysis.enabled }}
+{{- if and .Values.backend.enabled (or (and .Values.argoRollouts .Values.argoRollouts.enabled) (and .Values.canary .Values.canary.enabled)) .Values.argoRollouts.analysis .Values.argoRollouts.analysis.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: AnalysisTemplate
 metadata:
@@ -9,9 +9,6 @@ spec:
   args:
     - name: service-name
   metrics:
-    # --------------------------------------------------------------------------
-    # Metric 1: Success Rate (HTTP 5xx rate must be < 1% i.e. success rate >= 99%)
-    # --------------------------------------------------------------------------
     - name: success-rate
       interval: 30s
       count: 3
@@ -21,13 +18,10 @@ spec:
         prometheus:
           address: {{ .Values.argoRollouts.analysis.prometheusAddress | quote }}
           query: >-
-            sum(rate(http_requests_total{status!~"5..", app="shoplite"}[1m]))
+            sum(rate(http_requests_total{status!~"5..", namespace="{{ .Release.Namespace }}"}[1m]))
             /
-            (sum(rate(http_requests_total{app="shoplite"}[1m])) > 0)
+            (sum(rate(http_requests_total{namespace="{{ .Release.Namespace }}"}[1m])) > 0)
 
-    # --------------------------------------------------------------------------
-    # Metric 2: Latency Check (p95 latency must be <= 500ms / 0.5s)
-    # --------------------------------------------------------------------------
     - name: latency-p95
       interval: 30s
       count: 3
@@ -37,5 +31,5 @@ spec:
         prometheus:
           address: {{ .Values.argoRollouts.analysis.prometheusAddress | quote }}
           query: >-
-            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app="shoplite"}[1m])) by (le))
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}"}[1m])) by (le))
 {{- end }}

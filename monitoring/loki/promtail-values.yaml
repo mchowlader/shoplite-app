@@ -1,0 +1,20 @@
+# ==============================================================================
+# ShopLite: Promtail Configuration (Namespace: monitoring)
+# Preserves raw JSON log lines so Loki -> Tempo derivedFields regex matches "trace_id"!
+# ==============================================================================
+
+config:
+  clients:
+    - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+
+  snippets:
+    pipelineStages:
+      - cri: {}
+      - json:
+          expressions:
+            level: level
+            service: service
+            trace_id: trace_id
+      - labels:
+          level:
+          service:

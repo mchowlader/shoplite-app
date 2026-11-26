@@ -1,0 +1,100 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: shoplite-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: shoplite
+spec:
+  groups:
+    - name: shoplite-alerts
+      rules:
+        - alert: HighErrorRate
+          expr: (sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))) * 100 > 5
+          for: 5m
+          labels:
+            severity: Critical
+            app: shoplite
+          annotations:
+            summary: "High HTTP 5xx Error Rate on ShopLite Backend"
+            description: "HTTP 5xx error rate exceeded 5% for 5 minutes (Current: {{ $value | printf \"%.2f\" }}%)."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/high-error-rate.md"
+
+        - alert: HighLatency
+          expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1.0
+          for: 5m
+          labels:
+            severity: Warning
+            app: shoplite
+          annotations:
+            summary: "p95 Latency Exceeded 1 Second"
+            description: "ShopLite p95 request latency is {{ $value | printf \"%.2f\" }}s (> 1.0s for 5m)."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/high-latency.md"
+
+        - alert: QueueBacklog
+          expr: order_queue_depth > 50
+          for: 10m
+          labels:
+            severity: Warning
+            app: shoplite
+          annotations:
+            summary: "Redis Order Queue Backlog High"
+            description: "Pending orders queue depth exceeded 50 for 10 minutes (Current: {{ $value }})."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/queue-backlog.md"
+
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total{namespace=~"shoplite.*"}[10m]) > 0
+          for: 10m
+          labels:
+            severity: Critical
+            app: shoplite
+          annotations:
+            summary: "ShopLite Pod is CrashLooping"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} restarted {{ $value }} times over 10m."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/pod-crash-looping.md"
+
+        - alert: NodeDiskFilling
+          expr: (1 - (node_filesystem_avail_bytes{fstype=~"ext4|xfs",mountpoint=~"/|/var/lib/shoplite-storage"} / node_filesystem_size_bytes{fstype=~"ext4|xfs",mountpoint=~"/|/var/lib/shoplite-storage"})) * 100 > 85
+          for: 5m
+          labels:
+            severity: Warning
+            app: shoplite
+          annotations:
+            summary: "Node Disk Usage Exceeds 85%"
+            description: "Filesystem {{ $labels.mountpoint }} on {{ $labels.instance }} exceeded 85% usage ({{ $value | printf \"%.2f\" }}%)."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/node-disk-filling.md"
+
+    # Bonus 4: SLO Multi-Window Multi-Burn-Rate Alerts for POST /orders
+    - name: shoplite-slo-burn-rate-alerts
+      rules:
+        - alert: ErrorBudgetBurnRateCritical1h
+          expr: >-
+            (sum(rate(http_requests_total{route="/orders",status=~"5.."}[1h])) / sum(rate(http_requests_total{route="/orders"}[1h])) > (14.4 * 0.01))
+            and
+            (sum(rate(http_requests_total{route="/orders",status=~"5.."}[5m])) / sum(rate(http_requests_total{route="/orders"}[5m])) > (14.4 * 0.01))
+          for: 2m
+          labels:
+            severity: Critical
+            tier: slo
+            burn_rate: "14.4x"
+            app: shoplite
+          annotations:
+            summary: "Rapid POST /orders Error Budget Burn (14.4x)"
+            description: "POST /orders 99% SLO error budget burning at 14.4x over 1h and 5m."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/slo-burn-rate.md"
+
+        - alert: ErrorBudgetBurnRateCritical6h
+          expr: >-
+            (sum(rate(http_requests_total{route="/orders",status=~"5.."}[6h])) / sum(rate(http_requests_total{route="/orders"}[6h])) > (6 * 0.01))
+            and
+            (sum(rate(http_requests_total{route="/orders",status=~"5.."}[30m])) / sum(rate(http_requests_total{route="/orders"}[30m])) > (6 * 0.01))
+          for: 5m
+          labels:
+            severity: Critical
+            tier: slo
+            burn_rate: "6x"
+            app: shoplite
+          annotations:
+            summary: "Sustained POST /orders Error Budget Burn (6x)"
+            description: "POST /orders 99% SLO error budget burning at 6x over 6h and 30m."
+            runbook_url: "https://github.com/mchowlader/shoplite-app/blob/main/monitoring/runbooks/slo-burn-rate.md"

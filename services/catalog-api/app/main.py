@@ -18,7 +18,7 @@ from .schemas import (
     ProductResponse, OrderCreate, OrderCreateResponse,
     OrderStatusResponse, HealthResponse
 )
-from .database import get_db, init_db, SessionLocal
+from .database import get_db, init_db, engine
 from .queue import enqueue_order, check_redis, get_queue_depth
 
 logger = setup_logging(service_name=settings.SERVICE_NAME, log_level=settings.LOG_LEVEL)
@@ -53,6 +53,18 @@ try:
 except Exception as exc:
     logger.warning(f"OpenTelemetry initialization skipped: {exc}")
 
+try:
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    SQLAlchemyInstrumentor().instrument(engine=engine)
+except Exception as exc:
+    logger.warning(f"SQLAlchemyInstrumentor skipped: {exc}")
+
+try:
+    from opentelemetry.instrumentation.redis import RedisInstrumentor
+    RedisInstrumentor().instrument()
+except Exception as exc:
+    logger.warning(f"RedisInstrumentor skipped: {exc}")
+
 # --- Required Prometheus Metrics (Section 6.2) ---
 HTTP_REQUESTS_TOTAL = Counter(
     "http_requests_total",
@@ -74,12 +86,56 @@ ORDER_QUEUE_DEPTH = Gauge(
     "Current depth of the orders:pending queue"
 )
 
+
+class ApiPrefixMiddleware:
+    """Strip optional /api ingress prefix before FastAPI route matching."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            path = scope.get("path", "")
+            if path == "/api" or path.startswith("/api/"):
+                stripped = path[4:] or "/"
+                scope = dict(scope, path=stripped, raw_path=stripped.encode("ascii"))
+        await self.app(scope, receive, send)
+
+
+def _extract_trace_id(request: Request) -> str:
+    """Resolve active OpenTelemetry trace ID or fallback header/UUID."""
+    if trace_module:
+        try:
+            current_span = trace_module.get_current_span()
+            if current_span and current_span.get_span_context().is_valid:
+                return format(current_span.get_span_context().trace_id, "032x")
+        except Exception:
+            pass
+    return request.headers.get("X-Trace-Id", uuid.uuid4().hex)
+
+
+def _record_http_metrics(method: str, route_path: str, status_code: int, duration: float, trace_id: str) -> None:
+    """Record RED Prometheus counters, histograms, and OpenMetrics exemplars."""
+    if route_path in ("/metrics", "/healthz", "/readyz"):
+        return
+    HTTP_REQUESTS_TOTAL.labels(method=method, route=route_path, status=str(status_code)).inc()
+    exemplar = {"TraceID": trace_id} if trace_id else None
+    try:
+        if exemplar:
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route_path).observe(duration, exemplar=exemplar)
+        else:
+            HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route_path).observe(duration)
+    except TypeError:
+        HTTP_REQUEST_DURATION_SECONDS.labels(method=method, route=route_path).observe(duration)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Initializing ShopLite catalog-api...")
     init_db()
     yield
     logger.info("Shutting down catalog-api cleanly...")
+
 
 app = FastAPI(
     title="ShopLite Catalog API",
@@ -88,14 +144,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Instrument FastAPI with OpenTelemetry if available
-try:
-    if "FastAPIInstrumentor" in locals() and FastAPIInstrumentor:
-        FastAPIInstrumentor.instrument_app(app)
-except Exception as exc:
-    logger.warning(f"FastAPIInstrumentor registration skipped: {exc}")
 
-# Root Index Endpoint
 @app.get("/", tags=["General"])
 def root():
     return {
@@ -111,7 +160,7 @@ def root():
         }
     }
 
-# CORS Middleware
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -120,66 +169,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Request Metrics, Tracing, and Logging Middleware
+
 @app.middleware("http")
 async def telemetry_middleware(request: Request, call_next):
     start_time = time.time()
-
-    # Extract trace_id from active OpenTelemetry span context if available,
-    # ensuring exact correlation between Grafana Tempo traces and Loki logs!
-    trace_id = None
-    try:
-        if trace_module:
-            current_span = trace_module.get_current_span()
-            if current_span and current_span.get_span_context().is_valid:
-                trace_id = format(current_span.get_span_context().trace_id, "032x")
-    except Exception:
-        pass
-
-    if not trace_id:
-        trace_id = request.headers.get("X-Trace-Id", uuid.uuid4().hex)
-
+    trace_id = _extract_trace_id(request)
     request.state.trace_id = trace_id
 
-    route_path = request.url.path
     response = await call_next(request)
     duration = time.time() - start_time
 
-    # Update Prometheus metrics with Exemplar support (excluding /metrics, /healthz, /readyz)
-    if route_path not in ["/metrics", "/healthz", "/readyz"]:
-        HTTP_REQUESTS_TOTAL.labels(
-            method=request.method,
-            route=route_path,
-            status=str(response.status_code)
-        ).inc()
-        
-        # Attach Exemplar for Grafana Tempo distributed trace correlation
-        exemplar = {"TraceID": trace_id} if trace_id else None
-        try:
-            if exemplar:
-                HTTP_REQUEST_DURATION_SECONDS.labels(
-                    method=request.method,
-                    route=route_path
-                ).observe(duration, exemplar=exemplar)
-            else:
-                HTTP_REQUEST_DURATION_SECONDS.labels(
-                    method=request.method,
-                    route=route_path
-                ).observe(duration)
-        except TypeError:
-            HTTP_REQUEST_DURATION_SECONDS.labels(
-                method=request.method,
-                route=route_path
-            ).observe(duration)
+    matched_route = request.scope.get("route")
+    route_path = getattr(matched_route, "path", request.url.path)
+
+    _record_http_metrics(request.method, route_path, response.status_code, duration, trace_id)
+    if route_path not in ("/metrics", "/healthz", "/readyz"):
+        logger.info(
+            f"{request.method} {route_path} -> {response.status_code} ({duration * 1000:.1f}ms)",
+            extra={"trace_id": trace_id}
+        )
 
     response.headers["X-Trace-Id"] = trace_id
     return response
+
+
+# Register FastAPI OTel instrumentation and outermost /api prefix normalizer
+try:
+    if "FastAPIInstrumentor" in locals() and FastAPIInstrumentor:
+        FastAPIInstrumentor.instrument_app(app)
+except Exception as exc:
+    logger.warning(f"FastAPIInstrumentor registration skipped: {exc}")
+
+app.add_middleware(ApiPrefixMiddleware)
+
 
 # --- Health & Observability Endpoints ---
 @app.get("/healthz", tags=["Health"])
 def liveness():
     """Liveness check indicating that the process is running (Requirement 1.2)."""
     return {"status": "healthy"}
+
 
 @app.get("/readyz", response_model=HealthResponse, tags=["Health"])
 def readiness(response: Response, db: Session = Depends(get_db)):
@@ -203,6 +232,7 @@ def readiness(response: Response, db: Session = Depends(get_db)):
         queue="connected" if queue_ok else "unreachable"
     )
 
+
 @app.get("/metrics", tags=["Observability"])
 def metrics():
     """Exposes Prometheus metrics with OpenMetrics Exemplar support."""
@@ -213,22 +243,26 @@ def metrics():
     except Exception:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+
 # --- Product Catalog Endpoints ---
 @app.get("/products", response_model=List[ProductResponse], tags=["Products"])
 def get_products(db: Session = Depends(get_db)):
     """Return all products (Requirement 1.2)."""
-    products = db.query(Product).order_by(Product.id.asc()).all()
-    return products
+    return db.query(Product).order_by(Product.id.asc()).all()
+
 
 @app.get("/products/{id}", response_model=ProductResponse, tags=["Products"])
-def get_product_by_id(id: int, db: Session = Depends(get_db)):
+def get_product_by_id(id: int, request: Request, db: Session = Depends(get_db)):
     """
     Return a single product or 404 if it does not exist (Requirement 1.2).
     Applies CHAOS_LATENCY_MS delay to approximately 30% of requests if flag is active (Requirement 1.5).
     """
-    # Fault Injection Flag: CHAOS_LATENCY_MS
+    trace_id = getattr(request.state, "trace_id", _extract_trace_id(request))
     if settings.CHAOS_LATENCY_MS > 0 and random.random() < 0.30:
-        logger.warning(f"[CHAOS] Injecting {settings.CHAOS_LATENCY_MS}ms latency on GET /products/{id}")
+        logger.warning(
+            f"[CHAOS] Injecting {settings.CHAOS_LATENCY_MS}ms latency on GET /products/{id}",
+            extra={"trace_id": trace_id}
+        )
         time.sleep(settings.CHAOS_LATENCY_MS / 1000.0)
 
     product = db.query(Product).filter(Product.id == id).first()
@@ -239,6 +273,7 @@ def get_product_by_id(id: int, db: Session = Depends(get_db)):
         )
     return product
 
+
 # --- Order Management Endpoints ---
 @app.post("/orders", response_model=OrderCreateResponse, status_code=status.HTTP_201_CREATED, tags=["Orders"])
 def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(get_db)):
@@ -247,9 +282,13 @@ def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(
     and return 201 with the order ID (Requirement 1.2).
     Applies CHAOS_ERROR_RATE returning HTTP 500 if active (Requirement 1.5).
     """
-    # Fault Injection Flag: CHAOS_ERROR_RATE
+    trace_id = getattr(request.state, "trace_id", _extract_trace_id(request))
+
     if settings.CHAOS_ERROR_RATE > 0.0 and random.random() < settings.CHAOS_ERROR_RATE:
-        logger.error(f"[CHAOS] Injecting HTTP 500 error on POST /orders (Rate: {settings.CHAOS_ERROR_RATE})")
+        logger.error(
+            f"[CHAOS] Injecting HTTP 500 error on POST /orders (Rate: {settings.CHAOS_ERROR_RATE})",
+            extra={"trace_id": trace_id}
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Chaos Injected: Synthetic database/upstream transaction failure."
@@ -272,11 +311,6 @@ def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(
     db.commit()
     db.refresh(new_order)
 
-    # Track Prometheus metric
-    ORDERS_CREATED_TOTAL.inc()
-
-    # Enqueue to Redis list 'orders:pending' with W3C traceparent context propagation
-    trace_id = getattr(request.state, "trace_id", uuid.uuid4().hex)
     traceparent = None
     try:
         from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -298,10 +332,23 @@ def create_order(order_in: OrderCreate, request: Request, db: Session = Depends(
         "traceparent": traceparent,
         "enqueued_at": datetime.datetime.now(datetime.timezone.utc).isoformat()
     }
-    enqueue_order(payload)
+    if not enqueue_order(payload):
+        new_order.status = "FAILED"
+        new_order.completed_at = datetime.datetime.now(datetime.timezone.utc)
+        db.commit()
+        logger.error(f"Order #{new_order.id} enqueue failed (Redis unavailable)", extra={"trace_id": trace_id})
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Order queue unavailable."
+        )
 
-    logger.info(f"Order #{new_order.id} created and enqueued to orders:pending")
+    ORDERS_CREATED_TOTAL.inc()
+    logger.info(
+        f"Order #{new_order.id} created and enqueued to {settings.REDIS_QUEUE_NAME}",
+        extra={"trace_id": trace_id}
+    )
     return OrderCreateResponse(order_id=new_order.id)
+
 
 @app.get("/orders/{id}", response_model=OrderStatusResponse, tags=["Orders"])
 def get_order_status(id: int, db: Session = Depends(get_db)):
@@ -315,4 +362,3 @@ def get_order_status(id: int, db: Session = Depends(get_db)):
             detail=f"Order #{id} not found."
         )
     return order
-

@@ -4,6 +4,7 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+
 class Product(Base):
     __tablename__ = "products"
 
@@ -13,6 +14,7 @@ class Product(Base):
     stock = Column(Integer, nullable=False, default=50)
 
     orders = relationship("Order", back_populates="product")
+
 
 class Order(Base):
     __tablename__ = "orders"
@@ -25,4 +27,3 @@ class Order(Base):
     completed_at = Column(DateTime, nullable=True)
 
     product = relationship("Product", back_populates="orders")
-

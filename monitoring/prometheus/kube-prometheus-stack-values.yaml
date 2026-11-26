@@ -1,0 +1,84 @@
+# ==============================================================================
+# ShopLite: kube-prometheus-stack Values (Question 6 — Namespace: monitoring)
+# Includes Prometheus (exemplar-storage), Alertmanager, node-exporter,
+# kube-state-metrics, and Grafana with sidecar provisioning.
+# ==============================================================================
+
+prometheus:
+  prometheusSpec:
+    retention: "7d"
+    enableFeatures:
+      - exemplar-storage
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 4Gi
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "severity"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      receiver: "shoplite-webhook"
+      routes:
+        - matchers:
+            - severity = "Critical"
+          receiver: "shoplite-webhook"
+    receivers:
+      - name: "shoplite-webhook"
+        webhook_configs:
+          - url: "http://127.0.0.1:5001/webhook"
+            send_resolved: true
+
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
+
+grafana:
+  enabled: true
+  adminPassword: "admin"
+  grafana.ini:
+    server:
+      enforce_domain: false
+      root_url: "%(protocol)s://%(domain)s/grafana/"
+      serve_from_sub_path: true
+    security:
+      cookie_secure: false
+      cookie_samesite: lax
+  sidecar:
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: false
+      label: grafana_datasource
+      searchNamespace: monitoring
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: monitoring
+      folderAnnotation: grafana_folder

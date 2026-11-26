@@ -46,16 +46,40 @@ variable "worker_node_count" {
   default     = 2
 }
 
+variable "storage_volume_size_gb" {
+  description = "Dedicated AWS gp3 EBS volume size (GB) attached to each worker for DB and observability PVCs"
+  type        = number
+  default     = 10
+}
+
 variable "enable_ssh_bastion" {
-  description = "Enable temporary SSH bastion on control plane for restricted environments where AWS SSM is blocked by SCP"
+  description = "Enable SSH bastion on control plane when AWS SSM is blocked by sandbox SCP"
   type        = bool
   default     = false
 }
 
+variable "allowed_ssh_cidr" {
+  description = "CIDR block allowed for SSH bastion ingress when enable_ssh_bastion is true"
+  type        = string
+  default     = "0.0.0.0/0"
+}
+
 variable "key_name" {
-  description = "EC2 Key Pair name for SSH administration access (only active when enable_ssh_bastion is true)"
+  description = "EC2 Key Pair name for SSH administration access"
   type        = string
   default     = "shoplite-key"
+}
+
+variable "ssh_private_key_path" {
+  description = "Local path to SSH private key written into generated Ansible inventory"
+  type        = string
+  default     = "~/.ssh/shoplite-key.pem"
+}
+
+variable "generate_ansible_inventory" {
+  description = "Automatically generate ../ansible/inventory/hosts.ini from Terraform outputs"
+  type        = bool
+  default     = true
 }
 
 variable "budget_limit_usd" {
@@ -69,4 +93,3 @@ variable "alert_email" {
   type        = string
   default     = "admin@example.com"
 }
-

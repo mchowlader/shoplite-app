@@ -1,16 +1,11 @@
 # ==============================================================================
 # ShopLite: Network Module (Question 4.a & 4.b)
-# - Custom VPC spanning two Availability Zones
-# - 2 Public Subnets & 2 Private Subnets
-# - Internet Gateway & NAT Gateway with Route Tables
-# - Least-Privilege Security Groups
 # ==============================================================================
 
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# 1. Custom VPC
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -21,7 +16,6 @@ resource "aws_vpc" "main" {
   }
 }
 
-# 2. Internet Gateway
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.main.id
 
@@ -30,7 +24,6 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-# 3. Public Subnets (across 2 AZs)
 resource "aws_subnet" "public" {
   count                   = 2
   vpc_id                  = aws_vpc.main.id
@@ -44,7 +37,6 @@ resource "aws_subnet" "public" {
   }
 }
 
-# 4. Private Subnets (across 2 AZs)
 resource "aws_subnet" "private" {
   count             = 2
   vpc_id            = aws_vpc.main.id
@@ -57,7 +49,6 @@ resource "aws_subnet" "private" {
   }
 }
 
-# 5. Elastic IP for NAT Gateway
 resource "aws_eip" "nat" {
   domain     = "vpc"
   depends_on = [aws_internet_gateway.igw]
@@ -67,7 +58,6 @@ resource "aws_eip" "nat" {
   }
 }
 
-# 6. NAT Gateway (placed in 1st public subnet)
 resource "aws_nat_gateway" "nat" {
   allocation_id = aws_eip.nat.id
   subnet_id     = aws_subnet.public[0].id
@@ -78,7 +68,6 @@ resource "aws_nat_gateway" "nat" {
   depends_on = [aws_internet_gateway.igw]
 }
 
-# 7. Route Table for Public Subnets
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -98,7 +87,6 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# 8. Route Table for Private Subnets (via NAT Gateway)
 resource "aws_route_table" "private" {
   vpc_id = aws_vpc.main.id
 
@@ -117,10 +105,6 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
-
-# ==============================================================================
-# Security Groups (Question 4.b)
-# ==============================================================================
 
 # ALB Security Group (Public Ingress on 80 and 443)
 resource "aws_security_group" "alb" {
@@ -163,19 +147,6 @@ resource "aws_security_group" "nodes" {
   description = "Security Group for Kubernetes control-plane and worker nodes"
   vpc_id      = aws_vpc.main.id
 
-  # Ingress for SSH Administration / Bastion (Conditional fallback when SSM is blocked)
-  dynamic "ingress" {
-    for_each = var.enable_ssh_bastion ? [1] : []
-    content {
-      description = "Allow inbound SSH for cluster administration / bastion fallback"
-      from_port   = 22
-      to_port     = 22
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
-  }
-
-  # Ingress strictly from ALB to NodePort / Ingress controller port (e.g. 80, 443, 30000-32767)
   ingress {
     description     = "Allow traffic from ALB into Kubernetes Ingress"
     from_port       = 80
@@ -192,7 +163,6 @@ resource "aws_security_group" "nodes" {
     security_groups = [aws_security_group.alb.id]
   }
 
-  # Intra-cluster inter-node communication
   ingress {
     description = "Allow all intra-cluster traffic between nodes"
     from_port   = 0
@@ -214,3 +184,22 @@ resource "aws_security_group" "nodes" {
   }
 }
 
+# Dedicated Bastion SG attached ONLY to control-plane when enable_ssh_bastion is true
+resource "aws_security_group" "bastion" {
+  count       = var.enable_ssh_bastion ? 1 : 0
+  name        = "shoplite-bastion-sg-${var.environment}"
+  description = "Conditional SSH bastion ingress for control-plane fallback when SSM is blocked"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    description = "Allow inbound SSH to bastion control-plane only"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_ssh_cidr]
+  }
+
+  tags = {
+    Name = "shoplite-bastion-sg-${var.environment}"
+  }
+}

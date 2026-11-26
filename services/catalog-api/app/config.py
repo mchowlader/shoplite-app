@@ -1,6 +1,7 @@
 import os
 from pydantic import BaseModel
 
+
 class Settings(BaseModel):
     SERVICE_NAME: str = "catalog-api"
     PORT: int = int(os.getenv("PORT", "8000"))
@@ -34,5 +35,5 @@ class Settings(BaseModel):
     OTEL_EXPORTER_OTLP_ENDPOINT: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
     ENVIRONMENT: str = os.getenv("APP_ENV", "production")
 
-settings = Settings()
 
+settings = Settings()

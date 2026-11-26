@@ -1,11 +1,6 @@
 ---
 # ==============================================================================
-# ShopLite: Kubernetes Cluster Initialization & Join Playbook (Question 4.g / 5)
-# 1. Runs 'kubeadm init' on Control-Plane node
-# 2. Configures kubeconfig for administrative access
-# 3. Deploys Flannel CNI pod networking
-# 4. Generates join token and joins Worker nodes to cluster
-# 5. Asserts all nodes achieve 'Ready' status
+# ShopLite: Kubernetes Cluster Initialization & Platform Stack (Question 4.g / 5 / 7)
 # ==============================================================================
 
 - name: Initialize Kubernetes Control-Plane
@@ -20,96 +15,75 @@
     - name: Initialize Kubernetes cluster with kubeadm
       ansible.builtin.command: >
         kubeadm init
-        --apiserver-advertise-address={{ ansible_host }}
+        --apiserver-advertise-address={{ private_ip | default(ansible_host) }}
+        --apiserver-cert-extra-sans={{ private_ip | default(ansible_host) }},{{ cp_public_ip | default(ansible_host) }},127.0.0.1
         --pod-network-cidr={{ pod_network_cidr }}
         --service-cidr={{ service_cidr }}
-        --kubernetes-version=v{{ kubernetes_version }}.0
       when: not k8s_admin_conf.stat.exists
-      register: kubeadm_init_output
 
-    - name: Ensure .kube directory exists for ubuntu user
+    - name: Ensure .kube directories exist for ubuntu and root
       ansible.builtin.file:
-        path: /home/ubuntu/.kube
+        path: "{{ item.path }}"
         state: directory
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
         mode: '0750'
+      loop:
+        - { path: /home/ubuntu/.kube, owner: ubuntu, group: ubuntu }
+        - { path: /root/.kube, owner: root, group: root }
 
-    - name: Copy admin.conf to ubuntu user kubeconfig
+    - name: Copy admin.conf to ubuntu and root kubeconfig
       ansible.builtin.copy:
         src: /etc/kubernetes/admin.conf
-        dest: /home/ubuntu/.kube/config
+        dest: "{{ item.dest }}"
         remote_src: true
-        owner: ubuntu
-        group: ubuntu
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
         mode: '0600'
+      loop:
+        - { dest: /home/ubuntu/.kube/config, owner: ubuntu, group: ubuntu }
+        - { dest: /root/.kube/config, owner: root, group: root }
 
-    - name: Ensure root also has access to kubeconfig
-      ansible.builtin.file:
-        path: /root/.kube
-        state: directory
-        mode: '0750'
+    - name: Install Tigera Operator for Calico CNI (enforces Kubernetes NetworkPolicies)
+      ansible.builtin.command: >
+        kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: tigera_op
+      failed_when: tigera_op.rc != 0 and 'AlreadyExists' not in tigera_op.stderr
+      changed_when: tigera_op.rc == 0
 
-    - name: Copy admin.conf to root kubeconfig
+    - name: Render Calico Installation manifest matching pod_network_cidr
       ansible.builtin.copy:
-        src: /etc/kubernetes/admin.conf
-        dest: /root/.kube/config
-        remote_src: true
-        mode: '0600'
+        dest: /tmp/calico-custom-resources.yaml
+        mode: '0644'
+        content: |
+          apiVersion: operator.tigera.io/v1
+          kind: Installation
+          metadata:
+            name: default
+          spec:
+            calicoNetwork:
+              ipPools:
+                - name: default-ipv4-ippool
+                  blockSize: 26
+                  cidr: {{ pod_network_cidr }}
+                  encapsulation: VXLANCrossSubnet
+                  natOutgoing: Enabled
+                  nodeSelector: all()
+          ---
+          apiVersion: operator.tigera.io/v1
+          kind: APIServer
+          metadata:
+            name: default
+          spec: {}
 
-    - name: Deploy Flannel CNI overlay network
-      ansible.builtin.command: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+    - name: Apply Calico custom resources
+      ansible.builtin.command: kubectl apply -f /tmp/calico-custom-resources.yaml
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
-      register: cni_deploy
-      changed_when: "'created' in cni_deploy.stdout or 'configured' in cni_deploy.stdout"
-
-    - name: Deploy NGINX Ingress Controller
-      ansible.builtin.command: kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/baremetal/deploy.yaml
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      register: ingress_deploy
-      changed_when: "'created' in ingress_deploy.stdout or 'configured' in ingress_deploy.stdout"
-
-    - name: Patch Ingress Controller deployment for hostNetwork binding
-      ansible.builtin.command: >
-        kubectl patch deployment ingress-nginx-controller -n ingress-nginx
-        --type='json' -p='[{"op": "add", "path": "/spec/template/spec/hostNetwork", "value": true}]'
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      register: ingress_patch
-      changed_when: "'patched' in ingress_patch.stdout"
-
-    - name: Ensure argo-rollouts namespace exists
-      ansible.builtin.command: kubectl create namespace argo-rollouts
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      register: argo_ns
-      failed_when: argo_ns.rc != 0 and 'already exists' not in argo_ns.stderr
-      changed_when: "'created' in argo_ns.stdout"
-
-    - name: Deploy Argo Rollouts Progressive Delivery Controller
-      ansible.builtin.command: kubectl apply --server-side -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      register: argo_deploy
-      changed_when: "'created' in argo_deploy.stdout or 'configured' in argo_deploy.stdout"
-
-    - name: Deploy Local Path Dynamic Storage Provisioner
-      ansible.builtin.command: kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.28/deploy/local-path-storage.yaml
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      register: storage_deploy
-      changed_when: "'created' in storage_deploy.stdout or 'configured' in storage_deploy.stdout"
-
-    - name: Set local-path as Cluster Default StorageClass
-      ansible.builtin.command: >
-        kubectl patch storageclass local-path
-        -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-      environment:
-        KUBECONFIG: /etc/kubernetes/admin.conf
-      register: storage_patch
-      changed_when: "'patched' in storage_patch.stdout"
+      register: calico_cr
+      changed_when: "'created' in calico_cr.stdout or 'configured' in calico_cr.stdout"
 
     - name: Generate fresh kubeadm join command for worker nodes
       ansible.builtin.command: kubeadm token create --print-join-command
@@ -132,28 +106,158 @@
     - name: Execute kubeadm join command on worker nodes
       ansible.builtin.command: "{{ hostvars[groups['control_plane'][0]]['worker_join_cmd'] }}"
       when: not k8s_kubelet_conf.stat.exists
-      register: worker_join_output
 
-- name: Verify Cluster Health & Node States
+- name: Install Core Cluster Add-ons, Secrets & Retrieve Kubeconfig
   hosts: control_plane
-  become: false
+  become: true
   tasks:
-    - name: Wait for all nodes to achieve Ready status
+    - name: Wait for all 3 nodes to achieve Ready status
       ansible.builtin.command: kubectl get nodes --no-headers
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
       register: node_status
       until: >
-        node_status.stdout_lines | length == 3 and
+        node_status.stdout_lines | length >= 3 and
         not ('NotReady' in node_status.stdout)
-      retries: 24
+      retries: 30
       delay: 10
       changed_when: false
 
+    - name: Deploy NGINX Ingress Controller as DaemonSet with hostNetwork (port 80 on all workers for ALB)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx --force-update
+        helm repo update ingress-nginx
+        helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+          --namespace ingress-nginx --create-namespace \
+          --set controller.kind=DaemonSet \
+          --set controller.hostNetwork=true \
+          --set controller.dnsPolicy=ClusterFirstWithHostNet \
+          --set controller.daemonset.useHostPort=true \
+          --set controller.service.enabled=false \
+          --set controller.watchIngressWithoutClass=true \
+          --wait --timeout 300s
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Deploy Local Path Dynamic Storage Provisioner (v0.0.28)
+      ansible.builtin.command: >
+        kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.28/deploy/local-path-storage.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      changed_when: false
+
+    - name: Render local-path ConfigMap backed by dedicated 10GB AWS EBS mount (/var/lib/shoplite-storage)
+      ansible.builtin.copy:
+        dest: /tmp/local-path-config.yaml
+        mode: '0644'
+        content: |
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: local-path-config
+            namespace: local-path-storage
+          data:
+            config.json: |-
+              {
+                "nodePathMap": [
+                  {
+                    "node": "DEFAULT_PATH_FOR_NON_LISTED_NODES",
+                    "paths": ["/var/lib/shoplite-storage"]
+                  }
+                ]
+              }
+            setup: |-
+              #!/bin/sh
+              set -eu
+              mkdir -m 0777 -p "$1"
+            teardown: |-
+              #!/bin/sh
+              set -eu
+              rm -rf "$1"
+            helperPod.yaml: |-
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: helper-pod
+              spec:
+                containers:
+                - name: helper-pod
+                  image: busybox:1.36
+                  imagePullPolicy: IfNotPresent
+
+    - name: Apply local-path ConfigMap and mark StorageClass as default
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl apply -f /tmp/local-path-config.yaml
+        kubectl rollout restart deployment/local-path-provisioner -n local-path-storage
+        kubectl patch storageclass local-path -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Provision Kubernetes database Secrets out-of-band (never committed to Git)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        DB_PASS=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 20)
+        for ns in shoplite shoplite-dev; do
+          kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f -
+          if ! kubectl get secret shoplite-db-secret -n "$ns" >/dev/null 2>&1; then
+            kubectl create secret generic shoplite-db-secret -n "$ns" --from-literal=postgres-password="$DB_PASS"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Deploy ArgoCD for Declarative GitOps (Question 7)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply -n argocd --server-side -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+        kubectl patch configmap argocd-cmd-params-cm -n argocd --type merge -p '{"data":{"server.insecure":"true"}}'
+        kubectl rollout restart deployment/argocd-server -n argocd
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Deploy Argo Rollouts Progressive Delivery Controller (Bonus)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl create namespace argo-rollouts --dry-run=client -o yaml | kubectl apply -f -
+        kubectl apply --server-side -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Retrieve cluster kubeconfig to operator machine (Question 4.g)
+      ansible.builtin.fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ playbook_dir }}/kubeconfig"
+        flat: true
+
+    - name: Persist ALB DNS on control-plane for Grafana subpath configuration
+      ansible.builtin.copy:
+        dest: /opt/shoplite/alb-dns.txt
+        mode: '0644'
+        content: "{{ alb_dns_name | default('') }}\n"
+      when: alb_dns_name is defined and alb_dns_name != ''
+
     - name: Display cluster node summary
       ansible.builtin.command: kubectl get nodes -o wide
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
       register: cluster_nodes
       changed_when: false
 
-    - name: Print live Kubernetes cluster status
+    - name: Print cluster readiness & fetched kubeconfig info
       ansible.builtin.debug:
-        var: cluster_nodes.stdout_lines
-
+        msg:
+          - "{{ cluster_nodes.stdout_lines }}"
+          - "Kubeconfig fetched locally to: {{ playbook_dir }}/kubeconfig"

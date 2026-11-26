@@ -17,6 +17,7 @@ except Exception as e:
     logger.error(f"Failed to create Redis connection: {e}")
     redis_client = None
 
+
 def enqueue_order(order_payload: dict) -> bool:
     """
     Pushes an order into the Redis list 'orders:pending' (Requirement 1.1).
@@ -32,6 +33,7 @@ def enqueue_order(order_payload: dict) -> bool:
         logger.error(f"Failed to enqueue order to Redis list {settings.REDIS_QUEUE_NAME}: {exc}")
         return False
 
+
 def check_redis() -> bool:
     """
     Verifies that the Redis queue broker is responsive.
@@ -43,6 +45,7 @@ def check_redis() -> bool:
     except Exception:
         return False
 
+
 def get_queue_depth() -> int:
     """
     Returns the current depth of Redis list 'orders:pending' for Prometheus gauge.
@@ -53,4 +56,3 @@ def get_queue_depth() -> int:
         return redis_client.llen(settings.REDIS_QUEUE_NAME)
     except Exception:
         return 0
-

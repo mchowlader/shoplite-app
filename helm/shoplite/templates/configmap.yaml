@@ -5,21 +5,23 @@ metadata:
   labels:
     {{- include "shoplite.labels" . | nindent 4 }}
 data:
-  # Database Connectivity Configurations
   DB_HOST: {{ include "shoplite.fullname" . }}-postgres
   DB_PORT: {{ .Values.postgres.service.port | quote }}
   DB_NAME: {{ .Values.postgres.auth.database | quote }}
   DB_USER: {{ .Values.postgres.auth.username | quote }}
 
-  # Redis Queue & Broker Configurations
   REDIS_HOST: {{ include "shoplite.fullname" . }}-redis
   REDIS_PORT: {{ .Values.redis.service.port | quote }}
+  REDIS_QUEUE_NAME: "orders:pending"
 
-  # Application Core Configurations
   APP_ENV: {{ .Values.global.environment | quote }}
   LOG_LEVEL: {{ .Values.backend.env.LOG_LEVEL | quote }}
   PORT: {{ .Values.backend.env.PORT | quote }}
   METRICS_ENABLED: {{ .Values.backend.env.METRICS_ENABLED | quote }}
 
-  # OpenTelemetry Tracing Endpoint (Tempo OTLP HTTP receiver on port 4318)
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://shoplite-tempo.observability.svc.cluster.local:4318/v1/traces"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4318/v1/traces"
+
+  CHAOS_LATENCY_MS: {{ .Values.chaos.latencyMs | default "0" | quote }}
+  CHAOS_ERROR_RATE: {{ .Values.chaos.errorRate | default "0.0" | quote }}
+  CHAOS_MEMORY_LEAK: {{ .Values.chaos.memoryLeak | default "false" | quote }}
+  CHAOS_SLOW_DB: {{ .Values.chaos.slowDb | default "false" | quote }}

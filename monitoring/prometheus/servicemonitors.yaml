@@ -1,0 +1,43 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: shoplite-catalog-api
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: shoplite
+spec:
+  namespaceSelector:
+    matchNames:
+      - shoplite
+      - shoplite-dev
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shoplite
+      app.kubernetes.io/component: backend
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 5s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: shoplite-order-worker
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: shoplite
+spec:
+  namespaceSelector:
+    matchNames:
+      - shoplite
+      - shoplite-dev
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shoplite
+      app.kubernetes.io/component: worker
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 10s
+      scrapeTimeout: 5s

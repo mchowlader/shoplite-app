@@ -78,25 +78,24 @@ shoplite-app/
 │   └── run-ansible.sh          # Automated execution harness
 ├── helm/                       # Question 5: Production Kubernetes Helm Charts
 │   └── shoplite/               # Values, templates, Argo Rollout Canary, HPA, NetworkPolicies
-├── observability/              # Question 6: Full LGTM Observability Stack
-│   ├── prometheus/             # Prometheus server, node-exporter, alertmanager rules
-│   ├── grafana/                # Grafana dashboards (RED Metrics, Loki, Tempo datasources)
-│   ├── loki/                   # Loki distributed logging
-│   ├── tempo/                  # Tempo distributed tracing
-│   └── deploy-observability.sh # Automated single-click deployment script
-├── runbooks/                   # Question 8 & Bonus: Chaos Engineering & Operational Runbooks
-│   ├── chaos-simulation.sh     # Chaos failure injection engine
-│   └── slo-burn-rate.md        # SLO error-budget multi-window burn-rate runbook
+├── monitoring/                 # Question 6 & 8: LGTM Observability Stack & Runbooks
+│   ├── dashboards/             # Grafana Golden Signals JSON dashboard
+│   ├── alert-rules/            # PrometheusRule alerting & SLO burn-rate manifests
+│   ├── runbooks/               # Incident runbooks & chaos-simulation.sh
+│   ├── prometheus/             # kube-prometheus-stack values & ServiceMonitors
+│   ├── grafana/                # Datasources (Prometheus, Loki, Tempo) & Ingress
+│   ├── loki/                   # Loki & Promtail log aggregation configs
+│   ├── tempo/                  # Tempo distributed tracing config
+│   └── deploy-observability.sh # Automated single-command deployment script
 ├── docs/                       # Architectural Evidence & Post-Mortem Documentation
 │   ├── architecture-diagram.svg # End-to-end VPC & container architecture diagram
-│   ├── DRY_RUN_EXECUTION_GUIDE.md # Comprehensive dry-run execution runbook
-│   ├── RCA-INCIDENT-REPORT.md  # Question 8: Formal Incident Post-Mortem (5-Whys, Timeline)
-│   ├── ARGO-ROLLOUTS-CANARY-GUIDE.md # Bonus: Progressive delivery canary guide
-│   ├── q3-verification-evidence.png # Question 3 Linux hardening verification evidence
-│   ├── q4-aws-subnets-evidence.jpg # Question 4 AWS 2-AZ subnets verification evidence
-│   └── q4-terraform-apply-evidence.jpg # Question 4 Terraform apply verification evidence
-├── scripts/                    # Automated smoke test harnesses & validation scripts
-│   └── smoke-test.sh           # End-to-end curl assertion suite
+│   ├── DRY_RUN_EXECUTION_GUIDE.md # 5-hour lab execution runbook
+│   ├── RCA-INCIDENT-REPORT.md  # Question 8: Incident Post-Mortem template
+│   └── ARGO-ROLLOUTS-CANARY-GUIDE.md # Bonus: Progressive delivery canary guide
+├── scripts/                    # Automated smoke test, load test & config validation
+│   ├── smoke-test.sh           # End-to-end curl assertion suite
+│   ├── load-test.py            # 25+ RPS Python load test generator
+│   └── verify-workloads.py     # YAML/JSON validation harness
 ├── tests/                      # Automated unit test suite (pytest)
 └── .github/workflows/          # Question 7: Automated CI/CD Pipeline (Trivy, Docker, ECR)
 ```

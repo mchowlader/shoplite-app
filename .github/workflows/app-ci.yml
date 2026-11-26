@@ -1,127 +1,205 @@
 # ==============================================================================
-# ShopLite: Continuous Integration & GitOps Trigger Pipeline (Question 7)
-# Automates:
-#   1. Unit testing & Linting (Python 3.12 + Pytest)
-#   2. DevSecOps Vulnerability Scanning (Aqua Security Trivy)
-#   3. Multi-service Docker Builds & Push (Web, Catalog-API, Order-Worker)
-#   4. Declarative GitOps Commit-Back (Updates shoplite-gitops values.yaml)
+# ShopLite: CI/CD & GitOps Pipeline (Question 7)
+# - PR pipeline: Lint, Hadolint (all 3 Dockerfiles), Pytest, Helm lint, Terraform plan comment
+# - Main pipeline: Build, Trivy image scan (CRITICAL fail), ECR push (OIDC or Lab Session Keys),
+#   and GitOps commit-back to shoplite-gitops (short Git SHA)
 # ==============================================================================
 
 name: ShopLite CI/CD Pipeline
 
 on:
-  # Manual dispatch for on-demand examination runs and offline lab demos
   workflow_dispatch:
-
-  # Push trigger filtered to core code paths (avoids unnecessary builds on doc updates)
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
     paths:
       - 'services/**'
       - 'tests/**'
+      - 'helm/**'
+      - 'terraform/**'
+      - 'monitoring/**'
       - '.github/workflows/**'
-      - '!docs/**'
-      - '!*.md'
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
   id-token: write
+  pull-requests: write
 
 env:
   AWS_REGION: ap-southeast-1
-  ECR_REGISTRY: 779846822536.dkr.ecr.ap-southeast-1.amazonaws.com
   GITOPS_REPO: mchowlader/shoplite-gitops
-  IMAGE_TAG: sha-${{ github.sha }}
 
 jobs:
   # ----------------------------------------------------------------------------
-  # Job 1: Automated Unit Testing and Code Quality Verification
+  # Job 1: Linting, Hadolint (all 3 Dockerfiles), Unit Tests & Helm Lint
   # ----------------------------------------------------------------------------
   lint-and-test:
-    name: Lint & Unit Tests
+    name: Lint, Test & Helm Validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Application Repository
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12 Runtime
+      - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Install Dependencies & Test Frameworks
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pytest httpx
-          if [ -f services/catalog-api/requirements.txt ]; then
-            pip install -r services/catalog-api/requirements.txt
-          fi
+          pip install -r tests/requirements-dev.txt
+          pip install -r services/catalog-api/requirements.txt
+          pip install -r services/order-worker/requirements.txt
 
-      - name: Code Quality & Syntax Linting (Flake8)
+      - name: Run Flake8 Linting
         run: |
-          # Stop the build if there are Python syntax errors or undefined names
-          flake8 services/ --count --select=E9,F63,F7,F82 --show-source --statistics
-          # Warning check for code complexity
-          flake8 services/ --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+          flake8 services/ tests/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 services/ tests/ --count --max-complexity=10 --max-line-length=120 --statistics
 
-      - name: Dockerfile Security & Best Practices Linting (Hadolint)
+      - name: Hadolint — Web Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: "services/web/Dockerfile"
+          failure-threshold: "error"
+          ignore: "DL3018"
+
+      - name: Hadolint — Catalog API Dockerfile
         uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: "services/catalog-api/Dockerfile"
           failure-threshold: "error"
           ignore: "DL3018,DL3013"
 
-      - name: Execute Automated Unit Tests (Pytest)
-        run: |
-          pytest tests/ -v
+      - name: Hadolint — Order Worker Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: "services/order-worker/Dockerfile"
+          failure-threshold: "error"
+          ignore: "DL3018,DL3013"
+
+      - name: Run Unit Tests (Pytest)
+        run: pytest tests/ -v
 
       - name: Set up Helm 3
         uses: azure/setup-helm@v4
         with:
           version: "v3.15.0"
 
-      - name: Helm Chart Syntax & Best Practices Linting
-        run: |
-          helm lint helm/shoplite/
+      - name: Helm Chart Lint
+        run: helm lint helm/shoplite/
 
   # ----------------------------------------------------------------------------
-  # Job 2: DevSecOps Vulnerability Scanning (Trivy)
+  # Job 2: Pull-Request Terraform Plan & Comment (Question 7.1b)
   # ----------------------------------------------------------------------------
-  trivy-security-scan:
-    name: DevSecOps Vulnerability Scan (Trivy)
+  terraform-plan:
+    name: Terraform Plan (PR)
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Run Trivy FileSystem Vulnerability Scanner
-        uses: aquasecurity/trivy-action@master
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          scan-type: "fs"
-          scan-ref: "."
-          format: "table"
-          severity: "CRITICAL"
-          exit-code: "1"
+          terraform_version: "1.9.5"
+          terraform_wrapper: false
+
+      - name: Terraform Format Check & Validate
+        id: validate
+        working-directory: terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+
+      - name: Configure AWS via OIDC (if AWS_ROLE_ARN set)
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS via Session Keys (fallback)
+        if: ${{ secrets.AWS_ROLE_ARN == '' && secrets.AWS_ACCESS_KEY_ID != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Plan
+        id: plan
+        if: ${{ secrets.AWS_ROLE_ARN != '' || secrets.AWS_ACCESS_KEY_ID != '' }}
+        working-directory: terraform
+        continue-on-error: true
+        run: |
+          ./bootstrap-backend.sh >/dev/null
+          terraform init -backend-config=backend.hcl -reconfigure -input=false >/dev/null
+          terraform plan -no-color -input=false > plan.txt 2>&1 || true
+          rm -f backend.hcl
+          cat plan.txt
+
+      - name: Comment Terraform Plan on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const planPath = 'terraform/plan.txt';
+            const planOut = fs.existsSync(planPath)
+              ? fs.readFileSync(planPath, 'utf8').slice(0, 60000)
+              : 'AWS credentials not configured for PR plan; `terraform fmt` and `terraform validate` passed.';
+            const body = `### Terraform Check & Plan\n\n\`\`\`hcl\n${planOut}\n\`\`\``;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
 
   # ----------------------------------------------------------------------------
-  # Job 3: Multi-Architecture Docker Builds & Image Push
+  # Job 3: Build, Trivy Image Scan (CRITICAL) & Push to ECR (Question 7.1a)
   # ----------------------------------------------------------------------------
-  build-and-push:
-    name: Build & Push Microservices
-    needs: [lint-and-test, trivy-security-scan]
+  build-scan-push:
+    name: Build, Scan & Push to ECR
+    if: github.event_name != 'pull_request'
+    needs: [lint-and-test]
     runs-on: ubuntu-latest
+    outputs:
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+      image_tag: ${{ steps.meta.outputs.image_tag }}
     steps:
       - name: Checkout Application Repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx Builder
-        uses: docker/setup-buildx-action@v3
+      - name: Compute Short Git SHA Tag
+        id: meta
+        run: |
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "image_tag=sha-${SHORT_SHA}" >> "$GITHUB_OUTPUT"
 
-      # ECR Authentication: Active when AWS secrets are provided
-      - name: Configure AWS Credentials
+      - name: Verify AWS Credentials Configuration
+        run: |
+          if [ -z "${{ secrets.AWS_ROLE_ARN }}" ] && [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            echo "::error::Configure either secrets.AWS_ROLE_ARN (OIDC) or secrets.AWS_ACCESS_KEY_ID/SECRET/SESSION_TOKEN."
+            exit 1
+          fi
+
+      - name: Configure AWS Credentials via OIDC
+        if: ${{ secrets.AWS_ROLE_ARN != '' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Configure AWS Credentials via Lab Session Keys
+        if: ${{ secrets.AWS_ROLE_ARN == '' && secrets.AWS_ACCESS_KEY_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -133,94 +211,116 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Build 1: Frontend Web UI
-      - name: Build and Push Web Frontend Image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./services/web
-          push: true
-          tags: |
-            ${{ env.ECR_REGISTRY }}/shoplite/web:latest
-            ${{ env.ECR_REGISTRY }}/shoplite/web:v1.0.0
-            ${{ env.ECR_REGISTRY }}/shoplite/web:${{ env.IMAGE_TAG }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      # Build 2: Backend Catalog API
-      - name: Build and Push Catalog API Image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./services/catalog-api
-          push: true
-          tags: |
-            ${{ env.ECR_REGISTRY }}/shoplite/catalog-api:latest
-            ${{ env.ECR_REGISTRY }}/shoplite/catalog-api:v1.0.0
-            ${{ env.ECR_REGISTRY }}/shoplite/catalog-api:${{ env.IMAGE_TAG }}
+      - name: Build Local Docker Images (web, catalog-api, order-worker)
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          docker build -t "${ECR_REGISTRY}/shoplite/web:${IMAGE_TAG}" -t "${ECR_REGISTRY}/shoplite/web:latest" ./services/web
+          docker build -t "${ECR_REGISTRY}/shoplite/catalog-api:${IMAGE_TAG}" -t "${ECR_REGISTRY}/shoplite/catalog-api:latest" ./services/catalog-api
+          docker build -t "${ECR_REGISTRY}/shoplite/order-worker:${IMAGE_TAG}" -t "${ECR_REGISTRY}/shoplite/order-worker:latest" ./services/order-worker
 
-      # Build 3: Redis Order Worker
-      - name: Build and Push Order Worker Image
-        uses: docker/build-push-action@v6
+      - name: Trivy Image Scan — web
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          context: ./services/order-worker
-          push: true
-          tags: |
-            ${{ env.ECR_REGISTRY }}/shoplite/order-worker:latest
-            ${{ env.ECR_REGISTRY }}/shoplite/order-worker:v1.0.0
-            ${{ env.ECR_REGISTRY }}/shoplite/order-worker:${{ env.IMAGE_TAG }}
+          image-ref: "${{ steps.login-ecr.outputs.registry }}/shoplite/web:${{ steps.meta.outputs.image_tag }}"
+          format: "table"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: Trivy Image Scan — catalog-api
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "${{ steps.login-ecr.outputs.registry }}/shoplite/catalog-api:${{ steps.meta.outputs.image_tag }}"
+          format: "table"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: Trivy Image Scan — order-worker
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: "${{ steps.login-ecr.outputs.registry }}/shoplite/order-worker:${{ steps.meta.outputs.image_tag }}"
+          format: "table"
+          severity: "CRITICAL"
+          exit-code: "1"
+
+      - name: Push Verified Images to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.meta.outputs.image_tag }}
+        run: |
+          for svc in web catalog-api order-worker; do
+            docker push "${ECR_REGISTRY}/shoplite/${svc}:${IMAGE_TAG}"
+            docker push "${ECR_REGISTRY}/shoplite/${svc}:latest"
+          done
 
   # ----------------------------------------------------------------------------
-  # Job 4: Automated GitOps Bridge (Commit-Back to shoplite-gitops)
+  # Job 4: GitOps Commit-Back to shoplite-gitops (Question 7.1a)
   # ----------------------------------------------------------------------------
   gitops-bump:
-    name: GitOps Auto-Commit Image Tags
-    needs: build-and-push
+    name: Update Image Tags in shoplite-gitops
+    if: github.event_name != 'pull_request'
+    needs: [build-scan-push]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout GitOps Repository (shoplite-gitops)
+      - name: Verify GITOPS_PAT Secret
+        run: |
+          if [ -z "${{ secrets.GITOPS_PAT }}" ]; then
+            echo "::error::secrets.GITOPS_PAT is required to push image tags to ${{ env.GITOPS_REPO }}."
+            exit 1
+          fi
+
+      - name: Checkout shoplite-gitops
         uses: actions/checkout@v4
         with:
           repository: ${{ env.GITOPS_REPO }}
-          token: ${{ secrets.GITOPS_PAT || github.token }}
+          token: ${{ secrets.GITOPS_PAT }}
           path: gitops-repo
 
-      - name: Update Image Tags in Helm values.yaml
+      - name: Update Image Repositories & Short SHA Tags in Dev/Prod Values
+        env:
+          ECR_REGISTRY: ${{ needs.build-scan-push.outputs.ecr_registry }}
+          IMAGE_TAG: ${{ needs.build-scan-push.outputs.image_tag }}
         run: |
-          cd gitops-repo/helm/shoplite
-          
-          # Safely update image tags for frontend, backend, and worker to the current commit SHA
-          sed -i -E "s|(repository: shoplite/web\n[[:space:]]+tag: ).*|\1\"${{ env.IMAGE_TAG }}\"|" values.yaml || true
-          sed -i -E "s|(repository: shoplite/catalog-api\n[[:space:]]+tag: ).*|\1\"${{ env.IMAGE_TAG }}\"|" values.yaml || true
-          sed -i -E "s|(repository: shoplite/order-worker\n[[:space:]]+tag: ).*|\1\"${{ env.IMAGE_TAG }}\"|" values.yaml || true
-          
-          # Direct exact key replacement using Python for absolute structural safety
-          python3 -c "
-          import re
-          with open('values.yaml', 'r') as f:
-              content = f.read()
-          content = re.sub(r'(repository:\s*shoplite/web\s*\n\s*tag:\s*).*', r'\g<1>\"${{ env.IMAGE_TAG }}\"', content)
-          content = re.sub(r'(repository:\s*shoplite/catalog-api\s*\n\s*tag:\s*).*', r'\g<1>\"${{ env.IMAGE_TAG }}\"', content)
-          content = re.sub(r'(repository:\s*shoplite/order-worker\s*\n\s*tag:\s*).*', r'\g<1>\"${{ env.IMAGE_TAG }}\"', content)
-          with open('values.yaml', 'w') as f:
-              f.write(content)
-          "
-          
-          echo "=== Updated Helm values.yaml image tags: ==="
-          git diff values.yaml
+          python3 - <<'PY'
+          import os, re
+          ecr = os.environ["ECR_REGISTRY"]
+          tag = os.environ["IMAGE_TAG"]
 
-      - name: Commit and Push Updated Manifests to GitOps Main Branch
-        continue-on-error: true
+          def update_values(path, update_tag):
+              with open(path, "r", encoding="utf-8") as f:
+                  text = f.read()
+              mapping = {
+                  "frontend": f"{ecr}/shoplite/web",
+                  "backend": f"{ecr}/shoplite/catalog-api",
+                  "worker": f"{ecr}/shoplite/order-worker",
+              }
+              for section, repo in mapping.items():
+                  pattern = rf"(^{section}:\s*\n(?:[ \t]+.*\n)*?[ \t]+image:\s*\n[ \t]+repository:\s*).*(\n[ \t]+tag:\s*).*"
+                  if update_tag:
+                      text = re.sub(pattern, rf'\g<1>{repo}\g<2>"{tag}"', text, flags=re.MULTILINE)
+                  else:
+                      text = re.sub(rf"(^{section}:\s*\n(?:[ \t]+.*\n)*?[ \t]+image:\s*\n[ \t]+repository:\s*).*", rf"\g<1>{repo}", text, flags=re.MULTILINE)
+              with open(path, "w", encoding="utf-8") as f:
+                  f.write(text)
+
+          update_values("gitops-repo/envs/dev/values.yaml", update_tag=True)
+          update_values("gitops-repo/envs/prod/values.yaml", update_tag=False)
+          PY
+          git -C gitops-repo diff envs/
+
+      - name: Commit & Push to shoplite-gitops
         run: |
           cd gitops-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          if git diff --quiet helm/shoplite/values.yaml; then
-            echo "No image tag changes detected. Skipping commit."
+          if git diff --quiet envs/; then
+            echo "No changes to commit."
           else
-            git add helm/shoplite/values.yaml
-            git commit -m "chore(gitops): bump microservices to ${{ env.IMAGE_TAG }} [skip ci]"
-            if [ -n "${{ secrets.GITOPS_PAT }}" ]; then
-              git push "https://x-access-token:${{ secrets.GITOPS_PAT }}@github.com/${{ env.GITOPS_REPO }}.git" main
-              echo "Successfully pushed new image tags to shoplite-gitops!"
-            else
-              echo "Notice: Push skipped because GITOPS_PAT secret is not yet set in repo settings."
-            fi
+            git add envs/dev/values.yaml envs/prod/values.yaml
+            git commit -m "chore(gitops): deploy ${{ needs.build-scan-push.outputs.image_tag }} [skip ci]"
+            git push origin main
           fi

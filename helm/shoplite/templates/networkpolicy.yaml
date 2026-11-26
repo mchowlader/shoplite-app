@@ -15,10 +15,14 @@ spec:
     - Ingress
   ingress:
     - from:
-        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 10.0.0.0/16
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
       ports:
         - protocol: TCP
-          port: {{ .Values.frontend.service.port }}
+          port: {{ .Values.frontend.service.targetPort | default 8080 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -40,10 +44,40 @@ spec:
             matchLabels:
               {{- include "shoplite.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: frontend
-        - namespaceSelector: {}
+        - ipBlock:
+            cidr: 10.0.0.0/16
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
-          port: {{ .Values.backend.service.port }}
+          port: {{ .Values.backend.service.targetPort | default 8000 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "shoplite.fullname" . }}-worker-netpol
+  labels:
+    {{- include "shoplite.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "shoplite.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: {{ .Values.worker.service.port | default 9101 }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -69,6 +103,10 @@ spec:
             matchLabels:
               {{- include "shoplite.selectorLabels" . | nindent 14 }}
               app.kubernetes.io/component: worker
+        - podSelector:
+            matchLabels:
+              {{- include "shoplite.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: db-seed
       ports:
         - protocol: TCP
           port: {{ .Values.postgres.service.port }}

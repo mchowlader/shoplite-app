@@ -1,6 +1,6 @@
 ---
 # ==============================================================================
-# Role: common — Base OS Configuration & Kubernetes Preflight Setup
+# Role: common — Base OS Preflight, Kernel Tuning & 10GB EBS Storage Setup
 # ==============================================================================
 
 - name: Update apt cache and install baseline tools
@@ -16,6 +16,9 @@
       - jq
       - htop
       - net-tools
+      - acl
+      - ufw
+      - e2fsprogs
       - software-properties-common
     state: present
 
@@ -37,15 +40,12 @@
       overlay
       br_netfilter
 
-- name: Load overlay kernel module
-  community.general.modprobe:
-    name: overlay
-    state: present
-
-- name: Load br_netfilter kernel module
-  community.general.modprobe:
-    name: br_netfilter
-    state: present
+- name: Load overlay and br_netfilter kernel modules
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop:
+    - overlay
+    - br_netfilter
+  changed_when: false
 
 - name: Configure sysctl networking parameters for Kubernetes bridge traffic
   ansible.builtin.copy:
@@ -60,3 +60,33 @@
   ansible.builtin.command: sysctl --system
   changed_when: false
 
+- name: Ensure persistent storage mount point exists
+  ansible.builtin.file:
+    path: /var/lib/shoplite-storage
+    state: directory
+    mode: '0755'
+
+- name: Format and mount attached 10GB AWS EBS volume on worker nodes
+  ansible.builtin.shell: |
+    set -euo pipefail
+    ROOT_SRC=$(findmnt -n -o SOURCE /)
+    ROOT_DISK=$(lsblk -no PKNAME "$ROOT_SRC" | head -n1 || true)
+    DATA_DISK=$(lsblk -dn -o NAME,TYPE | awk -v r="$ROOT_DISK" '$2=="disk" && $1!=r {print "/dev/"$1; exit}')
+    if [ -z "$DATA_DISK" ]; then
+      echo "NO_EXTRA_DISK"
+      exit 0
+    fi
+    if ! blkid -o value -s TYPE "$DATA_DISK" >/dev/null 2>&1; then
+      mkfs.ext4 -F "$DATA_DISK"
+    fi
+    UUID=$(blkid -s UUID -o value "$DATA_DISK")
+    if ! grep -q "$UUID" /etc/fstab; then
+      echo "UUID=${UUID} /var/lib/shoplite-storage ext4 defaults,nofail 0 2" >> /etc/fstab
+    fi
+    mountpoint -q /var/lib/shoplite-storage || mount /var/lib/shoplite-storage
+    echo "MOUNTED:${DATA_DISK}:${UUID}"
+  args:
+    executable: /bin/bash
+  register: ebs_mount
+  changed_when: "'MOUNTED:' in ebs_mount.stdout"
+  when: "'workers' in group_names"

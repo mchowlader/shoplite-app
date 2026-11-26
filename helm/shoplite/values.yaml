@@ -1,24 +1,23 @@
 # Default values for shoplite Helm chart.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+# Never commit plain-text database secrets here; use existingSecret or --set.
 
 global:
   environment: production
   namespace: shoplite
   domain: shoplite.local
 
-imagePullSecrets:
-  - name: ecr-secret
+# Optional; K8s nodes use kubelet ecr-credential-provider + EC2 IAM role by default.
+imagePullSecrets: []
 
 # ------------------------------------------------------------------------------
-# 1. Frontend Configuration (React / Vite)
+# 1. Frontend Configuration (Nginx Static UI)
 # ------------------------------------------------------------------------------
 frontend:
   enabled: true
   replicaCount: 2
   image:
-    repository: 779846822536.dkr.ecr.ap-southeast-1.amazonaws.com/shoplite/web
-    tag: "v1.0.0"
+    repository: shoplite/web
+    tag: "latest"
     pullPolicy: IfNotPresent
   securityContext:
     runAsUser: 101
@@ -28,7 +27,7 @@ frontend:
   service:
     type: ClusterIP
     port: 80
-    targetPort: 80
+    targetPort: 8080
   resources:
     requests:
       cpu: 50m
@@ -39,12 +38,12 @@ frontend:
   probes:
     liveness:
       path: /
-      port: 80
-      initialDelaySeconds: 15
+      port: 8080
+      initialDelaySeconds: 10
       periodSeconds: 10
     readiness:
       path: /
-      port: 80
+      port: 8080
       initialDelaySeconds: 5
       periodSeconds: 5
 
@@ -55,8 +54,8 @@ backend:
   enabled: true
   replicaCount: 2
   image:
-    repository: 779846822536.dkr.ecr.ap-southeast-1.amazonaws.com/shoplite/catalog-api
-    tag: "v1.0.0"
+    repository: shoplite/catalog-api
+    tag: "latest"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -74,11 +73,10 @@ backend:
       cpu: 500m
       memory: 512Mi
   autoscaling:
-    enabled: true
+    enabled: false
     minReplicas: 2
-    maxReplicas: 10
+    maxReplicas: 6
     targetCPUUtilizationPercentage: 70
-    targetMemoryUtilizationPercentage: 80
   pdb:
     enabled: true
     minAvailable: 1
@@ -86,7 +84,7 @@ backend:
     liveness:
       path: /healthz
       port: 8000
-      initialDelaySeconds: 20
+      initialDelaySeconds: 15
       periodSeconds: 10
     readiness:
       path: /readyz
@@ -100,10 +98,19 @@ backend:
 worker:
   enabled: true
   replicaCount: 1
+  terminationGracePeriodSeconds: 60
   image:
-    repository: 779846822536.dkr.ecr.ap-southeast-1.amazonaws.com/shoplite/order-worker
-    tag: "v1.0.0"
+    repository: shoplite/order-worker
+    tag: "latest"
     pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 9101
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
   resources:
     requests:
       cpu: 50m
@@ -113,7 +120,7 @@ worker:
       memory: 256Mi
 
 # ------------------------------------------------------------------------------
-# 4. PostgreSQL Database Configuration (Stateful Storage)
+# 4. PostgreSQL Database Configuration (Stateful Storage on 10GB Worker EBS)
 # ------------------------------------------------------------------------------
 postgres:
   enabled: true
@@ -127,16 +134,17 @@ postgres:
   auth:
     database: shoplite_db
     username: shoplite_admin
-    # In dry-run / default Helm deployment, generate the secret automatically
-    existingSecret: ""
+    existingSecret: "shoplite-db-secret"
     secretKeys:
       adminPasswordKey: "postgres-password"
-    password: "shoplite_dev_password"
+    password: ""
   persistence:
     enabled: true
-    size: 10Gi
+    size: 4Gi
     accessMode: ReadWriteOnce
     storageClass: "local-path"
+  seedJob:
+    enabled: true
   resources:
     requests:
       cpu: 100m
@@ -146,7 +154,7 @@ postgres:
       memory: 1Gi
 
 # ------------------------------------------------------------------------------
-# 5. Redis Queue & Cache Configuration
+# 5. Redis Queue & Cache Configuration (ClusterIP only)
 # ------------------------------------------------------------------------------
 redis:
   enabled: true
@@ -165,48 +173,51 @@ redis:
       memory: 256Mi
 
 # ------------------------------------------------------------------------------
-# 6. Ingress Configuration (Routing via ALB / Ingress Controller)
+# 6. Fault-Injection Flags (Question 1.5 & Question 8 — Disabled by Default)
+# ------------------------------------------------------------------------------
+chaos:
+  latencyMs: "0"
+  errorRate: "0.0"
+  memoryLeak: "false"
+  slowDb: "false"
+
+# ------------------------------------------------------------------------------
+# 7. Ingress Configuration (ALB -> ingress-nginx -> Web & API)
 # ------------------------------------------------------------------------------
 ingress:
   enabled: true
   className: nginx
   annotations:
-    kubernetes.io/ingress.class: nginx
     nginx.ingress.kubernetes.io/ssl-redirect: "false"
   hosts:
-    - host: shoplite-alb-dev-1985139510.ap-southeast-1.elb.amazonaws.com
-      paths:
-        - path: /api
-          pathType: Prefix
-          service: backend
-          port: 8000
-        - path: /
-          pathType: Prefix
-          service: frontend
-          port: 80
-    - host: shoplite.local
-      paths:
-        - path: /api
-          pathType: Prefix
-          service: backend
-          port: 8000
-        - path: /
-          pathType: Prefix
-          service: frontend
-          port: 80
     - host: ""
       paths:
-        - path: /api
-          pathType: Prefix
+        - path: /healthz
+          pathType: Exact
+          service: backend
+          port: 8000
+        - path: /readyz
+          pathType: Exact
+          service: backend
+          port: 8000
+        - path: /metrics
+          pathType: Exact
           service: backend
           port: 8000
         - path: /
           pathType: Prefix
           service: frontend
           port: 80
+  apiPath:
+    enabled: true
+    host: ""
+    path: /api(/|$)(.*)
+    rewriteTarget: /$2
+    service: backend
+    port: 8000
 
 # ------------------------------------------------------------------------------
-# 7. Security Context (Non-Root Principle of Least Privilege)
+# 8. Security Context (Non-Root Principle of Least Privilege)
 # ------------------------------------------------------------------------------
 securityContext:
   runAsUser: 1001
@@ -215,24 +226,20 @@ securityContext:
   runAsNonRoot: true
 
 # ------------------------------------------------------------------------------
-# 8. Network Policy (Zero-Trust Microsegmentation)
+# 9. Network Policy (Zero-Trust Microsegmentation)
 # ------------------------------------------------------------------------------
 networkPolicy:
   enabled: true
 
 # ------------------------------------------------------------------------------
-# 9. Bonus: Argo Rollouts Progressive Delivery (+5 Bonus Marks)
-# Enables Canary Deployment with Automated Prometheus Metric Analysis & Rollback
+# 10. Bonus: Argo Rollouts Canary Delivery
 # ------------------------------------------------------------------------------
 canary:
-  enabled: true
+  enabled: false
 
 argoRollouts:
-  enabled: true
+  enabled: false
   analysis:
     enabled: true
-    prometheusAddress: "http://shoplite-prometheus-server.observability.svc.cluster.local:80"
+    prometheusAddress: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
     failureLimit: 1
-
-
-

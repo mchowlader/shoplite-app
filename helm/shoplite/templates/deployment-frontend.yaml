@@ -23,24 +23,19 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       securityContext:
-        {{- if .Values.frontend.securityContext }}
-        {{- toYaml .Values.frontend.securityContext | nindent 8 }}
-        {{- else }}
-        runAsUser: {{ .Values.securityContext.runAsUser }}
-        runAsGroup: {{ .Values.securityContext.runAsGroup }}
-        runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
-        {{- end }}
+        runAsUser: {{ .Values.frontend.securityContext.runAsUser | default 101 }}
+        runAsGroup: {{ .Values.frontend.securityContext.runAsGroup | default 101 }}
+        fsGroup: {{ .Values.frontend.securityContext.fsGroup | default 101 }}
+        runAsNonRoot: true
       containers:
         - name: frontend
           securityContext:
-            capabilities:
-              add:
-                - NET_BIND_SERVICE
+            allowPrivilegeEscalation: false
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
           imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.frontend.service.port }}
+              containerPort: {{ .Values.frontend.service.targetPort | default 8080 }}
               protocol: TCP
           livenessProbe:
             httpGet:

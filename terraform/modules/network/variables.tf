@@ -19,8 +19,13 @@ variable "environment" {
 }
 
 variable "enable_ssh_bastion" {
-  description = "Whether to allow inbound SSH on port 22 (Bastion fallback)"
+  description = "Whether to allow inbound SSH on control-plane bastion SG (fallback when SSM is blocked)"
   type        = bool
   default     = false
 }
 
+variable "allowed_ssh_cidr" {
+  description = "CIDR allowed for SSH bastion ingress"
+  type        = string
+  default     = "0.0.0.0/0"
+}

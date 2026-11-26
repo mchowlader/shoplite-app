@@ -27,7 +27,7 @@ spec:
       stableService: {{ include "shoplite.fullname" . }}-backend
       trafficRouting:
         nginx:
-          stableIngress: {{ include "shoplite.fullname" . }}-ingress
+          stableIngress: {{ include "shoplite.fullname" . }}-api-ingress
       steps:
         - setWeight: 10
         - pause: { duration: 1m }
@@ -40,6 +40,7 @@ spec:
       labels:
         {{- include "shoplite.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: backend
+        app: shoplite
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -51,11 +52,13 @@ spec:
         runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
       containers:
         - name: backend
+          securityContext:
+            allowPrivilegeEscalation: false
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.backend.service.port }}
+              containerPort: {{ .Values.backend.service.targetPort | default 8000 }}
               protocol: TCP
           envFrom:
             - configMapRef:

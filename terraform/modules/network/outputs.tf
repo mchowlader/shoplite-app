@@ -28,3 +28,7 @@ output "nodes_security_group_id" {
   value       = aws_security_group.nodes.id
 }
 
+output "bastion_security_group_id" {
+  description = "ID of the conditional bastion SSH security group"
+  value       = length(aws_security_group.bastion) > 0 ? aws_security_group.bastion[0].id : ""
+}
