@@ -80,7 +80,7 @@
                 - name: default-ipv4-ippool
                   blockSize: 26
                   cidr: {{ pod_network_cidr }}
-                  encapsulation: VXLANCrossSubnet
+                  encapsulation: VXLAN
                   natOutgoing: Enabled
                   nodeSelector: all()
           ---
