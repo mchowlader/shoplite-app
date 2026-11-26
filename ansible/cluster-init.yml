@@ -12,6 +12,18 @@
         path: /etc/kubernetes/admin.conf
       register: k8s_admin_conf
 
+    - name: Check for stale control-plane manifests from a partial kubeadm init
+      ansible.builtin.stat:
+        path: /etc/kubernetes/manifests/kube-apiserver.yaml
+      register: k8s_stale_manifests
+      when: not k8s_admin_conf.stat.exists
+
+    - name: Reset incomplete kubeadm state before fresh cluster initialization
+      ansible.builtin.command: kubeadm reset -f
+      when:
+        - not k8s_admin_conf.stat.exists
+        - k8s_stale_manifests.stat.exists | default(false)
+
     - name: Initialize Kubernetes cluster with kubeadm
       ansible.builtin.command: >
         kubeadm init

@@ -122,6 +122,7 @@ ansible_ssh_private_key_file=${var.ssh_private_key_path}
 ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 %{else~}
 ansible_connection=amazon.aws.aws_ssm
+ansible_user=ssm-user
 ansible_aws_ssm_region='${var.aws_region}'
 ansible_aws_ssm_bucket_name='${module.compute.ssm_staging_bucket_name}'
 %{endif~}

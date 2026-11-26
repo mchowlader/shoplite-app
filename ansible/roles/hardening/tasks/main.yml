@@ -36,13 +36,11 @@
   ansible.builtin.group:
     name: shoplite
     state: present
-    gid: 1001
 
 - name: Ensure shoplite least-privilege system user exists
   ansible.builtin.user:
     name: shoplite
     group: shoplite
-    uid: 1001
     shell: /bin/bash
     home: /home/shoplite
     create_home: true

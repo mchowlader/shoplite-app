@@ -59,6 +59,8 @@
     mode: '0644'
     content: |
       {
+        "apiVersion": "kubelet.config.k8s.io/v1",
+        "kind": "CredentialProviderConfig",
         "providers": [
           {
             "name": "ecr-credential-provider",
@@ -71,6 +73,7 @@
           }
         ]
       }
+  register: ecr_cred_cfg
 
 - name: Configure kubelet extra args to use ECR credential provider
   ansible.builtin.copy:
@@ -78,12 +81,26 @@
     mode: '0644'
     content: |
       KUBELET_EXTRA_ARGS=--image-credential-provider-config=/etc/kubernetes/ecr-credential-provider.json --image-credential-provider-bin-dir=/usr/bin
+  register: kubelet_defaults
 
-- name: Enable and reload kubelet service
+- name: Check if node is already part of a Kubernetes cluster
+  ansible.builtin.stat:
+    path: /etc/kubernetes/kubelet.conf
+  register: kubelet_conf_stat
+
+- name: Enable kubelet service and reload systemd daemon
   ansible.builtin.systemd:
     name: kubelet
     enabled: true
     daemon_reload: true
+
+- name: Restart kubelet if credential provider config changed on an initialized node
+  ansible.builtin.systemd:
+    name: kubelet
+    state: restarted
+  when:
+    - kubelet_conf_stat.stat.exists
+    - ecr_cred_cfg.changed or kubelet_defaults.changed
 
 - name: Install Helm 3 package manager on control-plane
   ansible.builtin.shell: |
