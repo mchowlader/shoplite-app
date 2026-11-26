@@ -216,6 +216,19 @@
         executable: /bin/bash
       changed_when: false
 
+    - name: Deploy Kubernetes Metrics Server (required for HPA autoscaling and kubectl top)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        export KUBECONFIG=/etc/kubernetes/admin.conf
+        kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+        if ! kubectl get deployment metrics-server -n kube-system -o jsonpath='{.spec.template.spec.containers[0].args}' | grep -q -- '--kubelet-insecure-tls'; then
+          kubectl patch deployment metrics-server -n kube-system --type='json' -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+        fi
+        kubectl rollout status deployment/metrics-server -n kube-system --timeout=120s
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Provision Kubernetes database Secrets out-of-band (never committed to Git)
       ansible.builtin.shell: |
         set -euo pipefail
