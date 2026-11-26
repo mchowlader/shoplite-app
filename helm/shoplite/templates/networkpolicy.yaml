@@ -17,6 +17,9 @@ spec:
     - from:
         - ipBlock:
             cidr: 10.0.0.0/16
+        # Cross-node Calico VXLAN traffic from hostNetwork ingress-nginx uses the node's vxlan.calico tunnel IP
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.podCidr | default "10.244.0.0/16" }}
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
@@ -46,6 +49,9 @@ spec:
               app.kubernetes.io/component: frontend
         - ipBlock:
             cidr: 10.0.0.0/16
+        # Cross-node Calico VXLAN traffic from hostNetwork ingress-nginx uses the node's vxlan.calico tunnel IP
+        - ipBlock:
+            cidr: {{ .Values.networkPolicy.podCidr | default "10.244.0.0/16" }}
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: ingress-nginx
