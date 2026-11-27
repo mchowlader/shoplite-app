@@ -98,13 +98,16 @@ def test_get_order_status():
 
 def test_metrics_and_chaos_error_rate():
     """Test 10: /metrics exposes required counters and CHAOS_ERROR_RATE triggers 500."""
+    client.get("/products")
     metrics_res = client.get("/metrics")
     assert metrics_res.status_code == 200
+    assert "application/openmetrics-text" in metrics_res.headers.get("content-type", "")
     body = metrics_res.text
     assert "http_requests_total" in body
     assert "http_request_duration_seconds" in body
     assert "orders_created_total" in body
     assert "order_queue_depth" in body
+    assert '# {TraceID="' in body
 
     original = settings.CHAOS_ERROR_RATE
     settings.CHAOS_ERROR_RATE = 1.0

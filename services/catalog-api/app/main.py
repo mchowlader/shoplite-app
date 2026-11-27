@@ -9,7 +9,11 @@ from fastapi import FastAPI, Depends, HTTPException, status, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge, REGISTRY, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client.openmetrics.exposition import (
+    CONTENT_TYPE_LATEST as OPENMETRICS_CONTENT_TYPE_LATEST,
+    generate_latest as openmetrics_generate_latest,
+)
 
 from .config import settings
 from .logging_config import setup_logging
@@ -238,8 +242,10 @@ def metrics():
     """Exposes Prometheus metrics with OpenMetrics Exemplar support."""
     ORDER_QUEUE_DEPTH.set(get_queue_depth())
     try:
-        from prometheus_client import openmetrics
-        return Response(content=openmetrics.generate_latest(), media_type=openmetrics.CONTENT_TYPE_LATEST)
+        return Response(
+            content=openmetrics_generate_latest(REGISTRY),
+            media_type=OPENMETRICS_CONTENT_TYPE_LATEST,
+        )
     except Exception:
         return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
